@@ -1,69 +1,116 @@
-import Image from "next/image";
+import { CheckIcon } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+
+/**
+ * TEMPORARY — scaffold status page.
+ *
+ * This is not a product screen. It exists so that `npm run dev` shows something
+ * honest and useful after the scaffold commit, and so the design tokens and
+ * shadcn primitives can be eyeballed in one place. Screen #1 (the landing page)
+ * replaces this file.
+ */
+
+const verified: string[] = [
+  "Next.js 16 App Router · TypeScript (strict) · Tailwind CSS v4",
+  "shadcn/ui primitives installed; tokens themed in app/globals.css",
+  "Supabase wired for SSR — browser + server clients, cookie session refresh in proxy.ts",
+  "Postgres schema with row-level security in supabase/migrations",
+  "Light + dark themes, motion tokens, and one accent colour that means something",
+];
+
+/** The five states every agent/deploy surface in the product will use. */
+const statusVocabulary = [
+  { label: "queued", dot: "bg-info" },
+  { label: "working", dot: "bg-volt animate-live-pulse" },
+  { label: "done", dot: "bg-success" },
+  { label: "needs you", dot: "bg-warning" },
+  { label: "failed", dot: "bg-destructive" },
+];
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-10 px-6 py-16 sm:py-24">
+      <header className="flex flex-col gap-5">
+        <div className="flex items-center gap-2">
+          <span
+            className="size-2 animate-live-pulse rounded-full bg-volt"
+            aria-hidden
+          />
+          <span className="font-heading text-sm font-medium tracking-tight">
+            Architect 2.0
+          </span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <Badge variant="outline" className="w-fit">
+          Scaffold complete · screens next
+        </Badge>
+
+        <h1 className="font-heading text-3xl font-medium tracking-tight text-balance sm:text-4xl">
+          The foundation is in place.
+        </h1>
+
+        <p className="max-w-prose leading-relaxed text-muted-foreground">
+          Describe an app in plain language and watch a team of agents build it —
+          or import a repository and keep shipping with agents you can inspect,
+          configure and deploy. No product screens exist yet: the landing page is
+          screen #1.
+        </p>
+      </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Verified in this scaffold</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {verified.map((item) => (
+            <div key={item} className="flex items-start gap-3">
+              <CheckIcon className="mt-0.5 size-4 shrink-0 text-volt-ink" />
+              <span className="text-muted-foreground">{item}</span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <section className="flex flex-col gap-4">
+        <h2 className="font-heading text-sm font-medium">
+          Status vocabulary
+        </h2>
+        <Separator />
+        <div className="flex flex-wrap gap-2">
+          {statusVocabulary.map((status) => (
+            <Badge key={status.label} variant="secondary" className="gap-1.5">
+              <span
+                className={`size-1.5 rounded-full ${status.dot}`}
+                aria-hidden
+              />
+              {status.label}
+            </Badge>
+          ))}
         </div>
-      </main>
-    </div>
+        <p className="text-xs text-muted-foreground">
+          One accent, used only where something is alive. The rest of the
+          interface stays neutral so the accent keeps its meaning.
+        </p>
+      </section>
+
+      <footer className="mt-auto border-t pt-6 text-xs text-muted-foreground">
+        <p>
+          Auth and project persistence are real (Supabase); everything downstream
+          of &ldquo;an agent does something&rdquo; is a mocked flow. The exact
+          split is documented in{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.8em]">
+            docs/real-vs-dummy.md
+          </code>
+          , and the product thinking in{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.8em]">
+            docs/product-vision.md
+          </code>
+          .
+        </p>
+      </footer>
+    </main>
   );
 }

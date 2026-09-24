@@ -1,26 +1,265 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* ---------------------------------------------------------------------
+   * Type
+   * next/font sets --font-geist-* on <html>. `@theme inline` makes utilities
+   * resolve those variables on the element instead of freezing a :root value,
+   * which is what keeps font loading flash-free with the App Router.
+   * ------------------------------------------------------------------- */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-geist-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* ---------------------------------------------------------------------
+   * Architect 2.0 brand + status tokens
+   *
+   * "Volt" is the single accent of the product. It is deliberately NOT wired
+   * to --primary or --accent: those are structural (buttons, hover surfaces).
+   * Volt is reserved for the one thing on screen that is *alive* — a running
+   * agent, an unshipped change, a live deploy. If everything is accented,
+   * nothing is.
+   *
+   * Status tokens name the five states every agent/deploy UI needs:
+   * queued (info) · working (volt) · done (success) · needs attention
+   * (warning) · failed (destructive, shipped by shadcn).
+   * ------------------------------------------------------------------- */
+  --color-volt: var(--volt);
+  --color-volt-foreground: var(--volt-foreground);
+  --color-volt-ink: var(--volt-ink);
+  --color-volt-muted: var(--volt-muted);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  /* ---------------------------------------------------------------------
+   * Motion
+   * Motion in Architect 2.0 only ever means "work is happening". These three
+   * are the entire vocabulary: live (a running agent), stream (text arriving),
+   * shimmer (a placeholder becoming real).
+   * ------------------------------------------------------------------- */
+  --animate-live-pulse: live-pulse 2.4s ease-in-out infinite;
+  --animate-stream-caret: stream-caret 1.1s steps(2, start) infinite;
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--volt-muted);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 4px var(--volt-muted);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@keyframes stream-caret {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+:root {
+  /* Canvas is a hair off-white so pure-white cards read as raised. */
+  --background: oklch(0.985 0.002 106);
+  --foreground: oklch(0.185 0.006 264);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.185 0.006 264);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.185 0.006 264);
+  --primary: oklch(0.21 0.008 264);
+  --primary-foreground: oklch(0.99 0.001 106);
+  --secondary: oklch(0.965 0.003 264);
+  --secondary-foreground: oklch(0.24 0.008 264);
+  --muted: oklch(0.965 0.003 264);
+  --muted-foreground: oklch(0.52 0.01 264);
+  --accent: oklch(0.96 0.004 264);
+  --accent-foreground: oklch(0.21 0.008 264);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.908 0.004 264);
+  --input: oklch(0.908 0.004 264);
+  --ring: oklch(0.62 0.02 264);
+
+  --chart-1: oklch(0.87 0.19 122);
+  --chart-2: oklch(0.7 0.12 195);
+  --chart-3: oklch(0.55 0.17 265);
+  --chart-4: oklch(0.78 0.15 80);
+  --chart-5: oklch(0.63 0.17 12);
+
+  --radius: 0.625rem;
+
+  /* Volt — the single accent. Read the rule before using it: it marks what is
+     alive (running agent, unshipped change, live deploy) and nothing else.
+     On light surfaces volt is a *fill* with ink text; --volt-ink is the
+     legible accent for text/icons on light backgrounds. */
+  --volt: oklch(0.87 0.19 122);
+  --volt-foreground: oklch(0.22 0.04 126);
+  --volt-ink: oklch(0.48 0.13 124);
+  --volt-muted: oklch(0.95 0.06 122);
+
+  /* Status vocabulary used by the agent graph, build stream and deploys. */
+  --success: oklch(0.62 0.15 152);
+  --success-foreground: oklch(0.98 0.02 152);
+  --warning: oklch(0.75 0.15 78);
+  --warning-foreground: oklch(0.26 0.05 78);
+  --info: oklch(0.6 0.15 250);
+  --info-foreground: oklch(0.98 0.01 250);
+
+  --sidebar: oklch(0.975 0.002 106);
+  --sidebar-foreground: oklch(0.185 0.006 264);
+  --sidebar-primary: oklch(0.21 0.008 264);
+  --sidebar-primary-foreground: oklch(0.99 0.001 106);
+  --sidebar-accent: oklch(0.955 0.004 264);
+  --sidebar-accent-foreground: oklch(0.21 0.008 264);
+  --sidebar-border: oklch(0.9 0.004 264);
+  --sidebar-ring: oklch(0.62 0.02 264);
+}
+
+.dark {
+  --background: oklch(0.16 0.005 264);
+  --foreground: oklch(0.965 0.002 106);
+  --card: oklch(0.195 0.006 264);
+  --card-foreground: oklch(0.965 0.002 106);
+  --popover: oklch(0.21 0.007 264);
+  --popover-foreground: oklch(0.965 0.002 106);
+  --primary: oklch(0.965 0.002 106);
+  --primary-foreground: oklch(0.185 0.006 264);
+  --secondary: oklch(0.26 0.007 264);
+  --secondary-foreground: oklch(0.965 0.002 106);
+  --muted: oklch(0.26 0.007 264);
+  --muted-foreground: oklch(0.7 0.01 264);
+  --accent: oklch(0.27 0.008 264);
+  --accent-foreground: oklch(0.965 0.002 106);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.6 0.02 264);
+
+  /* Volt stays the same hue in the dark workspace, raised in lightness so it
+     still reads as "energised" against a near-black canvas. */
+  --chart-1: oklch(0.89 0.2 122);
+  --chart-2: oklch(0.72 0.13 195);
+  --chart-3: oklch(0.66 0.16 265);
+  --chart-4: oklch(0.82 0.15 80);
+  --chart-5: oklch(0.7 0.16 12);
+
+  --volt: oklch(0.89 0.2 122);
+  --volt-foreground: oklch(0.2 0.04 126);
+  --volt-ink: oklch(0.9 0.17 122);
+  --volt-muted: oklch(0.3 0.06 124);
+
+  --success: oklch(0.75 0.16 152);
+  --success-foreground: oklch(0.18 0.03 152);
+  --warning: oklch(0.82 0.15 80);
+  --warning-foreground: oklch(0.22 0.05 80);
+  --info: oklch(0.72 0.14 250);
+  --info-foreground: oklch(0.18 0.03 250);
+
+  --sidebar: oklch(0.185 0.006 264);
+  --sidebar-foreground: oklch(0.965 0.002 106);
+  --sidebar-primary: oklch(0.965 0.002 106);
+  --sidebar-primary-foreground: oklch(0.185 0.006 264);
+  --sidebar-accent: oklch(0.27 0.008 264);
+  --sidebar-accent-foreground: oklch(0.965 0.002 106);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.6 0.02 264);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    /* Keep native widgets (scrollbars, date pickers) in step with our tokens. */
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Selecting text is the one place volt appears by default — it makes the
+     accent feel native to the product rather than decorative. */
+  ::selection {
+    background-color: var(--volt);
+    color: var(--volt-foreground);
+  }
+
+  /* Motion is opt-in for people who want it. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
