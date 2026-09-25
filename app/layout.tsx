@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: {
     default: "Architect 2.0 — describe it, and watch it get built",
-    template: "%s · Architect 2.0",
+    template: "%s — Architect 2.0",
   },
   description:
     "Describe an app in plain language and watch a team of agents build it — or import your repo and keep shipping with agents you can inspect, configure and deploy.",

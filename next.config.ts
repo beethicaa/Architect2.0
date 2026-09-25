@@ -1,4 +1,51 @@
+import { networkInterfaces } from "node:os";
+
 import type { NextConfig } from "next";
+
+/**
+ * Hostnames the dev server is allowed to serve dev-only assets and endpoints
+ * from.
+ *
+ * Why this exists: Next blocks cross-origin requests to dev-only endpoints by
+ * default, allowing only `localhost` and the hostname the server was started
+ * with. That is the right default for security, but it breaks a very ordinary
+ * developer habit - opening `http://<your-lan-ip>:3000` on a phone or a second
+ * machine to check a layout. The symptom is silent and confusing:
+ *
+ *   WebSocket connection to 'ws://192.168.1.4:3000/_next/hmr' failed
+ *
+ * The page renders, but hot reload is dead, so you edit code and have to
+ * manually refresh to see anything - and on a phone, which refreshes constantly,
+ * it looks like the app is just "failing continuously".
+ *
+ * Only the hostname is matched: no scheme, no port, no path. `*` stands for one
+ * label and `**` for one or more, so we add each real interface address rather
+ * than a blanket rule.
+ *
+ * `ALLOWED_DEV_ORIGINS` lets someone add an entry (e.g. a tunnel hostname)
+ * without editing this file.
+ */
+const LAN_HOSTNAMES: string[] = (() => {
+  const found = new Set<string>();
+
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      // IPv4 only: a phone on the same wifi uses the LAN IPv4 address. IPv6
+      // link-local addresses (fe80::/10) include a scope id and would be
+      // meaningless as an origin entry.
+      if (address.family === "IPv4" && !address.internal) {
+        found.add(address.address);
+      }
+    }
+  }
+
+  return [...found];
+})();
+
+const EXTRA_ORIGINS = (process.env.ALLOWED_DEV_ORIGINS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 const nextConfig: NextConfig = {
   /**
@@ -9,7 +56,22 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+
+  /**
+   * esbuild and the Anthropic SDK stay outside the server bundle.
+   *
+   * esbuild is a native binary (`esbuild.exe` plus a README). Turbopack tries to
+   * bundle every file it reaches and fails on both with "Unknown module type",
+   * which takes the whole build down. `serverExternalPackages` tells Next to
+   * leave these in `node_modules` and `require` them at runtime instead.
+   *
+   * The Anthropic SDK is listed for the same reason: it ships its own JSON
+   * fixtures and is large enough that bundling it buys nothing on a server that
+   * already has node_modules.
+   */
+  serverExternalPackages: ["esbuild", "openai", "@tailwindcss/cli"],
+
+  allowedDevOrigins: [...LAN_HOSTNAMES, ...EXTRA_ORIGINS],
 };
 
 export default nextConfig;
-
