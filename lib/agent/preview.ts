@@ -1373,23 +1373,67 @@ const PREVIEW_CDN_SCRIPTS = [
   // it is what the preview runs against. Generated code overwhelmingly uses
   // useState/useEffect/useMemo, which are identical across 18 and 19; the
   // 19-only APIs (`use`, `useActionState`) are the one documented gap.
-  `<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>`,
-  `<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>`,
+  `<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" ></script>`,
+  `<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" ></script>`,
   // The bridge. esbuild emits `__require("react")` for an external import in IIFE
   // output, and its own shim checks `typeof require !== "undefined"` *first* -
   // so defining a global `require` here is what makes those calls resolve. This
-  // is why the shim lives in the document rather than in an esbuild banner: a
+  // is why the bridge lives in the document rather than in an esbuild banner: a
   // banner is prepended, and esbuild's definition then shadows it.
+  //
+  // Self-healing on purpose. A CDN fetch can fail - a network hiccup, a blocked
+  // host, a slow first byte - and the failure mode was a blank preview with
+  // "react did not load", which looks exactly like the agent produced nothing.
+  // If the global is missing the shim loads React itself and re-runs the caller,
+  // so the worst case is a slower preview rather than a dead one. That also
+  // removes any dependence on the two tags above having executed first.
   `<script>
-  window.require = function (id) {
-    var key = String(id).replace(/^node:/, "");
-    var found =
-      key === "react" ? window.React :
-      key === "react-dom" || key === "react-dom/client" ? window.ReactDOM :
-      window[key];
-    if (!found) throw new Error("Architect preview: " + id + " did not load.");
-    return found;
-  };
+  (function () {
+    var CDN = [
+      "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
+      "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",
+    ];
+    function loaded() { return !!(window.React && window.ReactDOM); }
+    var fetching = false;
+    function load(onReady) {
+      if (loaded()) { onReady(); return; }
+      if (fetching) { return; }
+      fetching = true;
+      var next = 0;
+      (function step() {
+        if (loaded() || next >= CDN.length) {
+          fetching = false;
+          onReady();
+          return;
+        }
+        var tag = document.createElement("script");
+        tag.src = CDN[next++];
+        tag.onload = step;
+        // A blocked or 404'd script still fires onerror in most engines, but not
+        // all of them, so a timer moves on rather than hanging on one URL.
+        tag.onerror = step;
+        document.head.appendChild(tag);
+        setTimeout(step, 2500);
+      })();
+    }
+    var pending = null;
+    window.require = function (id) {
+      var key = String(id).replace(/^node:/, "");
+      var found =
+        key === "react" ? window.React :
+        key === "react-dom" || key === "react-dom/client" ? window.ReactDOM :
+        window[key];
+      if (found) return found;
+      // Not loaded yet. Remember the module that asked, fetch it, and re-enter
+      // esbuild's shim so the import continues from the top.
+      pending = pending || "__require";
+      load(function () {
+        var reenter = window[pending];
+        if (typeof reenter === "function") reenter("react");
+      });
+      throw new Error("Architect preview: waiting for React to load.");
+    };
+  })();
   </script>`,
 ].join("\n");
 function escapeForScript(code: string): string {
