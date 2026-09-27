@@ -1326,116 +1326,64 @@ function safeJson(value: string): string {
 }
 
 /*
- * The import map that resolves React in the browser.
+ * React is loaded from THIS app's own origin, not a CDN.
  *
- * Pinned to the version this app runs: a preview that silently rendered against
- * a different React than the rest of the product would be a baffling bug to
- * chase. esm.sh serves the production build of that exact version, so there are
- * no development warnings and no double renders.
+ * Why the shape changed, and why the old one could never have worked:
+ *
+ * 1. The document put the two UMD `<script src=unpkg...>` tags inside
+ *    `<script type="importmap">`. An import map must contain nothing but JSON.
+ *    The browser parses that block as JSON, fails, and discards the whole map -
+ *    so those two tags were never executed as scripts and the import map was
+ *    never installed. React was only ever reachable through the `window.require`
+ *    fallback, which fetched the *same* unpkg URLs.
+ *
+ * 2. So the preview depended on a third-party CDN being reachable from the
+ *    browser, with no other path. On a deployed build behind a network that
+ *    blocks or throttles unpkg, React never arrived, `window.require` threw
+ *    "waiting for React to load", and the user saw a dead screen with a message
+ *    that named neither the cause nor a fix. The app itself was fine.
+ *
+ * The runtime is pre-bundled into `public/preview/` by `prebuild` (see
+ * `scripts/build-react-runtime.mjs`), which is deployed as a static file, so the
+ * preview imports React from the same origin that served the document. No
+ * third-party request, no CDN, no network dependency at all.
+ *
+ * It is the exact React this app depends on (19.2.8, production build), so a
+ * preview never renders against a different React than the rest of the product.
  *
  * Module-level because the document is assembled in a different function from the
  * one that runs esbuild, and a constant describing the runtime does not belong to
  * a particular call.
  */
-const PREVIEW_IMPORT_MAP = JSON.stringify(
-  {
-    imports: {
-      react: "https://esm.sh/react@19.2.8",
-      "react/jsx-runtime": "https://esm.sh/react@19.2.8/jsx-runtime",
-      "react/jsx-dev-runtime": "https://esm.sh/react@19.2.8/jsx-dev-runtime",
-      "react-dom": "https://esm.sh/react-dom@19.2.8",
-      "react-dom/client": "https://esm.sh/react-dom@19.2.8/client",
-    },
-  },
-  null,
-  2,
-);
-/*
- * React is loaded into the preview iframe as UMD globals from a CDN, before the
- * app bundle runs. esbuild is told React is external and given a `require` shim
- * that maps the specifier onto these globals.
- *
- * Shipping React from the server was tried four times and failed in production
- * every time - a Vercel serverless function has no React package on its
- * filesystem, `public/` is served by the CDN rather than bundled into the
- * function, and an inlined bundle did not match the export shapes generated code
- * imports. A browser fetching a library it will run once is the right shape for
- * this problem.
- *
- * Pinned to the version this app depends on, so a preview never renders against
- * a different React than the rest of the product.
- */
-const PREVIEW_REACT_VERSION = "19.2.8";
+const PREVIEW_RUNTIME_URL = "/preview/react-runtime.js";
 
-const PREVIEW_CDN_SCRIPTS = [
-  // React 18.3.1 UMD. React 19 removed UMD builds entirely - every /umd/ path
-  // under 19.2.8 returns 404 - and this is the last version that ships one, so
-  // it is what the preview runs against. Generated code overwhelmingly uses
-  // useState/useEffect/useMemo, which are identical across 18 and 19; the
-  // 19-only APIs (`use`, `useActionState`) are the one documented gap.
-  `<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" ></script>`,
-  `<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" ></script>`,
-  // The bridge. esbuild emits `__require("react")` for an external import in IIFE
-  // output, and its own shim checks `typeof require !== "undefined"` *first* -
-  // so defining a global `require` here is what makes those calls resolve. This
-  // is why the bridge lives in the document rather than in an esbuild banner: a
-  // banner is prepended, and esbuild's definition then shadows it.
-  //
-  // Self-healing on purpose. A CDN fetch can fail - a network hiccup, a blocked
-  // host, a slow first byte - and the failure mode was a blank preview with
-  // "react did not load", which looks exactly like the agent produced nothing.
-  // If the global is missing the shim loads React itself and re-runs the caller,
-  // so the worst case is a slower preview rather than a dead one. That also
-  // removes any dependence on the two tags above having executed first.
-  `<script>
-  (function () {
-    var CDN = [
-      "https://unpkg.com/react@18.3.1/umd/react.production.min.js",
-      "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js",
-    ];
-    function loaded() { return !!(window.React && window.ReactDOM); }
-    var fetching = false;
-    function load(onReady) {
-      if (loaded()) { onReady(); return; }
-      if (fetching) { return; }
-      fetching = true;
-      var next = 0;
-      (function step() {
-        if (loaded() || next >= CDN.length) {
-          fetching = false;
-          onReady();
-          return;
-        }
-        var tag = document.createElement("script");
-        tag.src = CDN[next++];
-        tag.onload = step;
-        // A blocked or 404'd script still fires onerror in most engines, but not
-        // all of them, so a timer moves on rather than hanging on one URL.
-        tag.onerror = step;
-        document.head.appendChild(tag);
-        setTimeout(step, 2500);
-      })();
+/*
+ * esbuild emits `__require("react")` for an external import in IIFE output, and
+ * its own shim checks `typeof require !== "undefined"` *first* - so defining a
+ * global `require` in the document is what makes those calls resolve. That is why
+ * this lives in the document rather than in an esbuild banner: a banner is
+ * prepended, and esbuild's definition then shadows it.
+ *
+ * By the time this runs, the globals are already set, so there is no waiting and
+ * no fetch. A miss here is a real bug in the document rather than a race, and the
+ * message says so instead of asking the user to wait for something that is never
+ * coming.
+ */
+const PREVIEW_REQUIRE_BRIDGE = `
+  window.require = function (id) {
+    var key = String(id).replace(/^node:/, "");
+    var found =
+      key === "react" ? window.React :
+      key === "react-dom" || key === "react-dom/client" ? window.ReactDOM :
+      window[key];
+    if (!found) {
+      throw new Error(
+        "Architect preview: " + key + " was not loaded. This is a bug in Architect, not in the app."
+      );
     }
-    var pending = null;
-    window.require = function (id) {
-      var key = String(id).replace(/^node:/, "");
-      var found =
-        key === "react" ? window.React :
-        key === "react-dom" || key === "react-dom/client" ? window.ReactDOM :
-        window[key];
-      if (found) return found;
-      // Not loaded yet. Remember the module that asked, fetch it, and re-enter
-      // esbuild's shim so the import continues from the top.
-      pending = pending || "__require";
-      load(function () {
-        var reenter = window[pending];
-        if (typeof reenter === "function") reenter("react");
-      });
-      throw new Error("Architect preview: waiting for React to load.");
-    };
-  })();
-  </script>`,
-].join("\n");
+    return found;
+  };
+`;
 function escapeForScript(code: string): string {
   return code.replace(/<\/script/gi, "<\\/script");
 }
@@ -1560,11 +1508,37 @@ window.__architect_env = Object.freeze({});
     window.__ARCHITECT_FILES__ = ${safeJson(included.join("\n"))};
   })();
 </script>
-<script type="importmap">
-${PREVIEW_CDN_SCRIPTS}
+<script>
+${PREVIEW_REQUIRE_BRIDGE}
 </script>
 <script type="module">
-${escapeForScript(code)}
+/*
+ * React comes from this origin, from a file pre-bundled at build time. It is
+ * awaited BEFORE the app bundle runs, so window.React is already set by the
+ * time esbuild's external require fires - which is what removes the race the
+ * old CDN shim existed to paper over, and the "waiting for React to load" error
+ * that came with it.
+ *
+ * A failure here is reported rather than swallowed: if the runtime is missing
+ * from the deployment the user is told the preview cannot start, instead of
+ * being shown a blank frame that looks like the agent produced nothing.
+ *
+ * NB: no backticks in this comment. This whole block lives inside a template
+ * literal in the source, and a backtick closes it.
+ */
+import * as runtime from "${PREVIEW_RUNTIME_URL}";
+
+window.React = runtime.React;
+window.ReactDOM = runtime.ReactDOMClient;
+window.jsxRuntime = runtime.JsxRuntime;
+window.__ARCHITECT_REACT_ERROR__ = null;
+
+try {
+  ${escapeForScript(code)}
+} catch (error) {
+  window.__ARCHITECT_REACT_ERROR__ = error;
+  throw error;
+}
 </script>
 </body>
 </html>`;
