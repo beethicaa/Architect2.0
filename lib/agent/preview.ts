@@ -127,6 +127,32 @@ import { createRequire } from "node:module";
  * relies on. If the package is reachable at runtime this finds it; if it is not,
  * the list is harmless.
  */
+/**
+ * Where the pre-bundled React lives, as the compiler sees it.
+ *
+ * Resolved to a real file at runtime rather than looked up in `node_modules`,
+ * because a Vercel serverless function has no React package to find. The file
+ * lives in `public/`, which is deployed as static assets, so this resolves in
+ * production for the same reason it resolves locally.
+ *
+ * Returns null when the bundle is missing, so the caller can fall back to
+ * normal resolution - which is what a developer machine wants, and turns a
+ * missing build step into a slower preview rather than a broken one.
+ */
+function reactRuntimeFile(): string | null {
+  const candidate = path.join(process.cwd(), "public", "preview", "react-runtime.js");
+  return existsSync(candidate) ? candidate : null;
+}
+
+/** The bare specifiers the preview substitutes with the pre-bundled file. */
+const REACT_SPECIFIERS = new Set([
+  "react",
+  "react/jsx-runtime",
+  "react/jsx-dev-runtime",
+  "react-dom",
+  "react-dom/client",
+]);
+
 const nodeSearchPaths = (): string[] => {
   const candidates: string[] = [];
 
@@ -1148,6 +1174,33 @@ export async function compilePreview(
         "process.env.NODE_ENV": '"production"',
       },
       plugins: [
+    {
+      name: "architect-react-runtime",
+      setup(build) {
+        const runtime = reactRuntimeFile();
+        if (!runtime) return;
+        const dir = path.dirname(runtime);
+
+        // Map each specifier onto the wrapper emitted at build time. Without
+        // this, esbuild looks for `react` in `node_modules`, which does not
+        // exist inside a serverless function - the failure that made every
+        // built and imported app render as "Could not resolve" in production
+        // while working perfectly on a developer machine.
+        build.onResolve({ filter: /^(react|react-dom)(\/.*)?$/ }, (args) => {
+          if (!REACT_SPECIFIERS.has(args.path)) return null;
+          const name =
+            args.path === "react-dom/client"
+              ? "react-dom-client.js"
+              : args.path === "react"
+                ? "react.js"
+                : args.path.endsWith("jsx-dev-runtime")
+                  ? "jsx-dev-runtime.js"
+                  : "jsx-runtime.js";
+          return { path: path.join(dir, name) };
+        });
+      },
+    },
+
         projectPlugin,
         {
           name: "architect-entry",
