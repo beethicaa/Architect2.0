@@ -1,6 +1,6 @@
 import { compilePreview } from "@/lib/agent/preview";
 import { listFiles } from "@/lib/agent/tools";
-import { requireSupabaseEnv } from "@/lib/env";
+import { isSupabaseConfigured, requireSupabaseEnv } from "@/lib/env";
 import { createClient, getClaims } from "@/lib/supabase/server";
 
 /**
@@ -20,6 +20,24 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+
+  /*
+   * A server with no database is not a healthy server.
+   *
+   * This used to fall through to the catch below, which answered 200 with an HTML
+   * page. So an unconfigured deployment told any monitor - and any caller - that
+   * the request succeeded, when the truth was that the route could not do its job
+   * at all. A 503 says what happened and is what a retry policy should act on.
+   */
+  if (!isSupabaseConfigured) {
+    return new Response(
+      "This preview needs a database, and this deployment is not configured with one.",
+      {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      },
+    );
+  }
 
   try {
     requireSupabaseEnv();

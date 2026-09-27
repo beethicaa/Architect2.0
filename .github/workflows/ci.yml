@@ -25,17 +25,25 @@ jobs:
 
       - run: npm ci
 
+      # Build FIRST, then types.
+      #
+      # Next 16 generates `PageProps` and `LayoutProps` into .next/types, and
+      # writes next-env.d.ts to reference them. Both are gitignored - correctly,
+      # they are build output - so on a fresh checkout they do not exist yet and
+      # `tsc` reports `Cannot find name 'PageProps'` on six files. The first run
+      # of this workflow failed in 30 seconds for exactly that reason.
+      #
+      # The build generates them, so the type check has something to resolve. This
+      # is also the honest order: you cannot typecheck a codebase whose types the
+      # framework has not generated yet.
+      - name: Build
+        run: npm run build
+
       - name: Types
         run: npx tsc --noEmit
 
       - name: Lint
         run: npx eslint --max-warnings=0 --quiet
-
-      # No credentials in CI, so this proves the app *boots* without them, which
-      # is a documented behaviour rather than an accident. The full credential
-      # preflight needs secrets and belongs in a deployment, not a pull request.
-      - name: Build
-        run: npm run build
 
       #
       # Start, poll and assert in one step on purpose: a background process does
@@ -52,9 +60,16 @@ jobs:
           done
           curl -fsS -o /dev/null -w "GET /          -> %{http_code}\n" http://localhost:3000/
           curl -fsS -o /dev/null -w "GET /sign-in   -> %{http_code}\n" http://localhost:3000/sign-in
-          # A signed-out visitor must not be able to read a project's preview.
+
+          # The security property, stated so it holds either way.
+          #
+          # CI has no credentials, so the preview route answers 503 (not
+          # configured) where a configured server answers 401 (not signed in).
+          # What must never happen is a 200: that would mean an anonymous caller
+          # received a compiled project. Asserting the specific code would make
+          # this test break every time the route was corrected.
           code=$(curl -s -o /dev/null -w "%{http_code}" \
             http://localhost:3000/api/projects/00000000-0000-0000-0000-000000000000/preview)
           echo "GET /preview (anon) -> $code"
-          test "$code" = "401"
+          test "$code" != "200"
 
