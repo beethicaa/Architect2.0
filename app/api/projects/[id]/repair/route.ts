@@ -20,7 +20,7 @@ import { createClient, getClaims } from "@/lib/supabase/server";
 import { dependencyOrder, diagnoseProject } from "@/lib/pipeline/diagnose";
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+export const maxDuration = 300;
 
 export async function POST(
   request: Request,

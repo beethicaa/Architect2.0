@@ -23,7 +23,7 @@ import { isSupabaseConfigured } from "@/lib/env";
 
 export const runtime = "nodejs";
 /** A seven-agent run on a free tier can legitimately take several minutes. */
-export const maxDuration = 800;
+export const maxDuration = 300;
 
 export async function POST(
   request: Request,
