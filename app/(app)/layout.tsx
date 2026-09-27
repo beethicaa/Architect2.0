@@ -69,8 +69,14 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         */}
         <header className="z-40 shrink-0 border-b border-border bg-background/85 backdrop-blur">
           <div className="mx-auto flex h-14 w-full max-w-[110rem] items-center gap-3 px-4 sm:px-6">
+            {/*
+              The wordmark goes to the landing page, on every screen.
+              It pointed at `/dashboard`, so the logo behaved differently
+              inside the product than outside it - and there is already a
+              "Projects" item in the nav for the place it was sending you.
+            */}
             <Link
-              href="/dashboard"
+              href="/"
               className="flex items-center gap-2 text-sm font-medium tracking-tight"
             >
               <span
