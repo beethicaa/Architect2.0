@@ -26,7 +26,7 @@ export default async function Home({
   searchParams,
 }: PageProps<"/">) {
   /*
-   * A signed-in visitor never sees the marketing page.
+   * A signed-in visitor lands on the dashboard, not the marketing page.
    *
    * Two reasons, and the second is the bug that prompted it. Supabase's browser
    * client handles a `?code=` on whatever page it lands on, so after a Google
@@ -36,15 +36,24 @@ export default async function Home({
    * where someone who just signed in actually wants to be.
    *
    * Read server-side, so the check does not flash the marketing page first.
+   *
+   * `?home=1` is the escape hatch, and it is not a workaround - it is the
+   * difference between *arriving* at the root URL and *asking* for this page.
+   * Everyone who is already inside the product clicks the wordmark to get back to
+   * the front door, and being silently shunted to /dashboard meant the logo on
+   * every screen did not do what it said it did. The credential problem is
+   * unaffected: it only ever occurs on a fresh sign-in, which arrives as a bare
+   * `?code=` with no `home` parameter.
    */
+  const params = await searchParams;
+
   if (isSupabaseConfigured) {
     const claims = await getClaims();
-    if (claims) redirect("/dashboard");
+    if (claims && params.home !== "1") redirect("/dashboard");
   }
 
   // A `?code=` with no session means the exchange failed. Strip it rather than
   // leaving a dead credential in the URL.
-  const params = await searchParams;
   if (typeof params.code === "string") {
     redirect("/sign-in");
   }

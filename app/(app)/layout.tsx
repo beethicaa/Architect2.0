@@ -76,7 +76,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
               "Projects" item in the nav for the place it was sending you.
             */}
             <Link
-              href="/"
+              href="/?home=1"
               className="flex items-center gap-2 text-sm font-medium tracking-tight"
             >
               <span

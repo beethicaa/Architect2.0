@@ -23,20 +23,21 @@ export function SiteFooter({ className }: { className?: string }) {
   return (
     <footer className={cn("shrink-0 border-t border-border", className)}>
       {/*
-        Contained, with the two halves at opposite ends of that container.
+        The two statements, pushed to opposite ends of the full width, with a
+        gutter from each corner.
 
-        This is the third attempt at this element and both earlier ones were
-        wrong for the same reason: they positioned the text against the *screen*.
-        Capped at 110rem the border stopped short of the builder's panels;
-        full-bleed with `justify-between` the two statements flew to opposite
-        corners of a very wide monitor with nothing between them.
+        This has been capped and centred twice, and both attempts fought the
+        brief: `max-w-110rem` stopped the border short of the builder's panels,
+        and `max-w-3xl` put the pair either side of the middle of the screen -
+        which is not "opposite corners" however it is described. A footer is read
+        as two items belonging to the frame, and the frame is as wide as the
+        window. The padding is the only thing keeping them off the edges, which is
+        exactly the "a bit of gap from the corner" that is wanted.
 
-        A max-width with the pair still spread inside it satisfies both things at
-        once: the border belongs to the shell and spans it, and the text has a
-        readable measure. On a laptop the two sit either side of centre, which is
-        what "opposite ends" was meant to look like all along.
+        On a narrow screen they stack, because two sentences pinned to opposite
+        corners of a phone are two sentences that collide.
       */}
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-1 px-4 py-2.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6">
+      <div className="flex w-full flex-col gap-1 px-4 py-2.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6">
         <p className="flex items-center gap-2">
           <span>Architect 2.0 — assignment submission for Lyzr.</span>
           {/*

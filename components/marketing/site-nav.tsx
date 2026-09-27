@@ -15,7 +15,7 @@ export function SiteNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
       <nav className="mx-auto flex h-14 w-full max-w-6xl items-center gap-4 px-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2 text-sm font-medium tracking-tight">
+        <Link href="/?home=1" className="flex items-center gap-2 text-sm font-medium tracking-tight">
           <span
             className="size-2 animate-live-pulse rounded-full bg-volt"
             aria-hidden
