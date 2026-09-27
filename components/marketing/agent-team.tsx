@@ -1,27 +1,29 @@
 import {
-  Compass,
   Database,
-  LayoutGrid,
+  FileCode2,
+  GitBranch,
+  ListChecks,
   Network,
+  Radar,
   Rocket,
-  Search,
-  Server,
-  ShieldCheck,
+  ScrollText,
 } from "lucide-react";
 
-import { createAgentGraph } from "@/lib/mock/agents";
-import type { AgentKind } from "@/lib/types/domain";
+import { AGENTS, type AgentKey, type AgentSpec } from "@/lib/pipeline/agents";
 
 /**
  * The agent team, on the marketing page.
  *
- * It reads the *same* `lib/mock/agents.ts` data the builder's graph does, so the
+ * It reads the *same* `lib/pipeline/agents.ts` the builder's graph does, so the
  * team advertised on the landing page is literally the team that runs. A static
  * illustration here would drift from the product within one commit; this cannot.
+ *
+ * That was true when it read the mock, and it is truer now: the mock described
+ * an intended team, while this describes the seven agents `runPipeline` actually
+ * calls, in the order it calls them.
  */
 export function AgentTeam() {
-  const graph = createAgentGraph();
-  const [planner, ...rest] = graph.nodes;
+  const [planner, ...rest] = AGENTS;
 
   return (
     <section
@@ -43,7 +45,7 @@ export function AgentTeam() {
       <div className="mt-10 flex flex-col gap-5">
         <Node node={planner} primary />
         {rest.map((node) => (
-          <Node key={node.id} node={node} />
+          <Node key={node.key} node={node} />
         ))}
       </div>
 
@@ -59,24 +61,24 @@ export function AgentTeam() {
   );
 }
 
-const ICONS: Record<AgentKind, typeof Compass> = {
-  planner: Compass,
-  research: Search,
-  schema: Database,
-  api: Server,
-  ui: LayoutGrid,
-  review: ShieldCheck,
-  deploy: Rocket,
+const ICONS: Record<AgentKey, typeof Database> = {
+  planner: ScrollText,
+  researcher: Radar,
+  data_schema: Database,
+  data_wiring: GitBranch,
+  interface: FileCode2,
+  reviewer: ListChecks,
+  shipper: Rocket,
 };
 
 function Node({
   node,
   primary = false,
 }: {
-  node: ReturnType<typeof createAgentGraph>["nodes"][number];
+  node: AgentSpec;
   primary?: boolean;
 }) {
-  const Icon = ICONS[node.kind];
+  const Icon = ICONS[node.key];
   return (
     <div className="flex items-start gap-3">
       <span

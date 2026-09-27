@@ -39,8 +39,23 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         <ThemeProvider
           attribute="class"
-          defaultTheme="light"
+          /*
+           * `system`, not `light`.
+           *
+           * The brief is that the app follows the operating system until the
+           * person says otherwise, on every page. `defaultTheme="light"` with
+           * `enableSystem` renders light on first load and only ever moves to
+           * dark if the toggle is pressed - the setting was on but did nothing.
+           * `defaultTheme="system"` makes the OS the default, and next-themes
+           * persists an explicit choice to localStorage, so a manual change
+           * applies to every page until it is changed again.
+           *
+           * `enableColorScheme` lets the browser paint form controls and scrollbars
+           * to match, which a class on <html> alone does not do.
+           */
+          defaultTheme="system"
           enableSystem
+          enableColorScheme
           disableTransitionOnChange
         >
           <TooltipProvider>

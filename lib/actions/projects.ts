@@ -147,13 +147,85 @@ export async function deleteProject(
 }
 
 /** "a booking app for my clinic" -> "Clinic booking app". */
+/**
+ * Condense a prompt into a project name.
+ *
+ * The first five words are almost never the best five words. "a web app where i
+ * store notes of all subjects" became "Web app where i store notes" - which
+ * describes the technology rather than the thing being built, and several
+ * projects then differed only by a stray "the".
+ *
+ * So the leading filler is dropped, and the words that merely restate the medium
+ * ("web app", "mobile app", "website") are dropped with it, because by the time
+ * someone is in the builder they know it is an app. What is left is the part
+ * that actually names the subject.
+ *
+ * This is a rule-based condensation rather than a model call on purpose: it runs
+ * inside the create-project request, and adding a network round trip to naming a
+ * project would make the button feel slow for a cosmetic gain.
+ */
+/**
+ * Words that carry no information in a project name.
+ *
+ * Split into two groups because they are removed for different reasons:
+ *
+ *   - Grammar and the medium. "a", "the", "web", "app" - by the time someone is
+ *     looking at a list of projects they know these are apps, and the words only
+ *     pad the title.
+ *   - The action verbs people reach for when describing software. "store",
+ *     "track", "manage", "generate". Almost every prompt opens with one, and
+ *     keeping it puts a verb where a name belongs: "Store subjectwise notes"
+ *     instead of "Subjectwise notes".
+ *
+ * The list is deliberately generic. Anything specific to a domain ("biology",
+ * "clinic") is exactly the word worth keeping.
+ */
+const FILLER = new Set([
+  // grammar
+  "a", "an", "the", "i", "we", "my", "our", "me", "you", "your", "us",
+  "that", "which", "where", "when", "who", "whose", "for", "to", "with",
+  "and", "but", "so", "then", "also", "have", "has", "having", "it", "is",
+  "are", "be", "been", "will", "would", "shall", "should", "can", "could",
+  "may", "might", "must", "do", "does", "did", "there", "here", "if", "than",
+  "as", "at", "by", "from", "in", "into", "of", "on", "or", "over", "up",
+  "out", "about", "just", "very", "really", "some", "any", "each", "every",
+  "all", "both", "more", "most", "such", "own", "same", "s", "t", "re", "ve",
+  "ll", "d", "m",
+  // the medium
+  "app", "application", "apps", "web", "webapp", "web-app", "website", "site",
+  "mobile", "desktop", "online", "thing", "things", "something", "anything",
+  "stuff", "tool", "page", "program", "system", "software",
+  // asking for it
+  "want", "need", "wants", "needs", "like", "please", "lets", "let", "help",
+  "make", "build", "create", "generate", "develop", "give", "design", "code",
+  // describing what it does
+  "store", "stores", "track", "tracks", "manage", "manages", "organise",
+  "organize", "keep", "keeps", "save", "saves", "add", "show", "list", "view",
+  "log", "note", "see", "find", "search", "plan", "help",
+]);
+
 function titleFrom(prompt: string): string {
-  const cleaned = prompt
-    .replace(/^(an?|the)\s+/i, "")
-    .replace(/[^a-z0-9\s]/gi, " ")
+  const words = prompt
+    .toLowerCase()
+    // Possessives first: "son's" would otherwise split into "son" and "s", and
+    // the stray "s" is exactly the kind of debris that makes a title look
+    // machine-made. Contractions go the same way - "it'd" became "it d".
+    .replace(/['\u2019]s\b/g, "")
+    .replace(/n['\u2019]t\b/g, " not")
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
-  const words = cleaned.slice(0, 5).join(" ");
-  if (!words) return "New project";
-  return words.charAt(0).toUpperCase() + words.slice(1);
+
+  // Keep the distinctive words, in the order they were written.
+  const meaningful = words.filter((word) => !FILLER.has(word));
+
+  // Everything was filler ("an app") - fall back to the original opening so the
+  // project is still distinguishable rather than blank.
+  const chosen = (meaningful.length > 0 ? meaningful : words).slice(0, 5);
+  if (chosen.length === 0) return "New project";
+
+  const titled = chosen.join(" ");
+  // Sentence case, not Title Case: "Study notes and quizzes" reads as a name,
+  // where "Study Notes And Quizzes" reads as a label.
+  return titled.charAt(0).toUpperCase() + titled.slice(1);
 }

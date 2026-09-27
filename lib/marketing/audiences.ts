@@ -31,7 +31,6 @@ export interface Lens {
   body: string;
   flow: string[];
   gets: string[];
-  needs: string;
   adjacent: Adjacent[];
 }
 
@@ -53,8 +52,6 @@ export const LENSES: Lens[] = [
       "One button to undo the last change",
       "You never have to read a diff to use it",
     ],
-    needs:
-      "To know what the agents are actually doing, and to be able to say no without learning anything technical.",
     adjacent: [
       {
         icon: Briefcase,
@@ -90,8 +87,6 @@ export const LENSES: Lens[] = [
       "Model selection per agent, not a global setting",
       "Environment variables, deploys and rollback",
     ],
-    needs:
-      "To stay in their repository, with the agents as a tool inside their workflow rather than a black box that owns it.",
     adjacent: [
       {
         icon: Wrench,

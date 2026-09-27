@@ -4,16 +4,11 @@ import { FolderGit2, Sparkles } from "lucide-react";
 import * as React from "react";
 import { useFormStatus } from "react-dom";
 
-import { GitHubMark } from "@/components/states/github-mark";
-import { SimulatedBadge } from "@/components/states/simulated-badge";
+import { RepoPicker } from "@/components/github/repo-picker";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  type ProjectActionState,
-  createProject,
-} from "@/lib/actions/projects";
-import { GITHUB_REPOS } from "@/lib/mock/github";
+import { type ProjectActionState, createProject } from "@/lib/actions/projects";
 import { cn } from "@/lib/utils";
 
 /**
@@ -26,19 +21,87 @@ import { cn } from "@/lib/utils";
  * started from a description and a project imported from a repo converge on the
  * same builder the moment they exist. That convergence is the 2.0 thesis made
  * concrete, and it is why this is one tabbed panel rather than two pages.
+ *
+ * The repository door used to render four hardcoded repositories and carry a
+ * "this list is scripted" badge. It now runs the real OAuth connect and the real
+ * import, and the badge is gone because there is nothing left to disclaim.
  */
 export function NewProjectPanel({
   mode: initialMode,
+  githubConfigured,
+  githubLogin,
+  githubRedirectHint,
+  primaryDoor,
 }: {
   /** Pre-selected tab, so the dashboard can deep-link into one door. */
   mode?: "prompt" | "import";
+  /** Resolved on the server; a client cannot read a server-only env var. */
+  githubConfigured: boolean;
+  githubLogin: string | null;
+  /** The exact callback URL GitHub must have registered, or null when it will match. */
+  githubRedirectHint: string | null;
+  /**
+   * Which door the account's lens puts first.
+   *
+   * This is the brief's requirement that the two audiences get different
+   * experiences, not a preference: a developer's first move is pointing at the
+   * repository they already have, and a non-technical user's is typing a
+   * sentence. Order carries that, and the panel is read left to right.
+   *
+   * The other door is still offered, in the other position. Neither audience is
+   * locked out of the other's path - that is the whole point of one product.
+   */
+  primaryDoor?: "prompt" | "import";
 }) {
-  const [mode, setMode] = React.useState(initialMode ?? "prompt");
+  /*
+   * Deep links into a specific door.
+   *
+   * The dashboard's empty state links here with `#describe-it` or
+   * `#import-repo`, so "Start from a description" lands on the description form
+   * itself rather than on a card that may be showing the other door. The account
+   * lens decides the default order, so whichever door is *not* first is exactly
+   * the one someone is likely to have to jump to.
+   *
+   * Read once, as a lazy initialiser, rather than in an effect. An effect that
+   * calls `setMode` would render the wrong door first and then correct itself,
+   * which means a flash of the import form before switching to the description
+   * form. There is also nothing to subscribe to: the fragment does not change
+   * while this component is mounted, and reading it again would fight the
+   * browser's own back/forward handling.
+   */
+  const [mode, setMode] = React.useState(() => {
+    const hash =
+      typeof window === "undefined" ? "" : window.location.hash.replace("#", "");
+    if (hash === "describe-it") return "prompt" as const;
+    if (hash === "import-repo") return "import" as const;
+    return initialMode ?? primaryDoor ?? ("prompt" as const);
+  });
   const [state, formAction] = React.useActionState<ProjectActionState, FormData>(
     createProject,
     { error: null, notice: null },
   );
-  const [repo, setRepo] = React.useState(GITHUB_REPOS[0].fullName);
+
+  const promptDoor = (
+    <Door
+      key="prompt"
+      active={mode === "prompt"}
+      icon={Sparkles}
+      title="Describe it"
+      body="Best if you have never written code. Say what you want and watch it get built."
+      onSelect={() => setMode("prompt")}
+    />
+  );
+
+  const importDoor = (
+    <Door
+      key="import"
+      active={mode === "import"}
+      icon={FolderGit2}
+      title="Bring a repository"
+      body="Best if you already have code. We read it first, then work inside it."
+      onSelect={() => setMode("import")}
+    />
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -47,42 +110,45 @@ export function NewProjectPanel({
         role="tablist"
         aria-label="How to start"
       >
-        <Door
-          active={mode === "prompt"}
-          icon={Sparkles}
-          title="Describe it"
-          body="Best if you have never written code. Say what you want and watch it get built."
-          onSelect={() => setMode("prompt")}
-        />
-        <Door
-          active={mode === "import"}
-          icon={FolderGit2}
-          title="Bring a repository"
-          body="Best if you already have code. We read it first, then work inside it."
-          onSelect={() => setMode("import")}
-        />
+        {primaryDoor === "import"
+          ? [importDoor, promptDoor]
+          : [promptDoor, importDoor]}
       </div>
 
-      <form action={formAction} className="flex flex-col gap-5">
-        <input type="hidden" name="origin" value={mode} />
-        {mode === "import" ? (
-          <input type="hidden" name="repo" value={repo} />
-        ) : null}
-
-        {mode === "prompt" ? <PromptField /> : <RepoField repo={repo} onPick={setRepo} />}
-
-        {state.error ? (
-          <p
-            role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
-          >
-            {state.error}
-          </p>
-        ) : null}
-
-        <CreateButton mode={mode} />
-      </form>
+      {mode === "prompt" ? (
+        <form
+          /* The deep-link target for "Start from a description", so the link
+             scrolls here *and* selects this door. Without it the hash existed but
+             pointed at a container that was not the form. */
+          id="describe-it"
+          action={formAction}
+          className="flex scroll-mt-24 flex-col gap-5"
+        >
+          <input type="hidden" name="origin" value="prompt" />
+          <PromptField />
+          {state.error ? <ErrorNote>{state.error}</ErrorNote> : null}
+          <CreateButton label="Build it" />
+        </form>
+      ) : (
+        <RepoPicker
+          id="import-repo"
+          configured={githubConfigured}
+          connectedAs={githubLogin}
+          redirectHint={githubRedirectHint}
+        />
+      )}
     </div>
+  );
+}
+
+function ErrorNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p
+      role="alert"
+      className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+    >
+      {children}
+    </p>
   );
 }
 
@@ -105,54 +171,6 @@ function PromptField() {
       <p className="text-xs leading-relaxed text-muted-foreground">
         One or two sentences is plenty. You can change your mind later — every
         build is a checkpoint you can go back to.
-      </p>
-    </div>
-  );
-}
-
-function RepoField({
-  repo,
-  onPick,
-}: {
-  repo: string;
-  onPick: (value: string) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <Label>Repository</Label>
-      <div className="flex flex-col gap-2">
-        {GITHUB_REPOS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onPick(item.fullName)}
-            aria-pressed={repo === item.fullName}
-            className={cn(
-              "flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-              repo === item.fullName
-                ? "border-foreground/20 bg-muted/50"
-                : "border-border hover:bg-muted/30",
-            )}
-          >
-            <GitHubMark className="size-4 shrink-0" />
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate font-mono text-xs">{item.fullName}</span>
-              <span className="truncate text-xs text-muted-foreground">
-                {item.description}
-              </span>
-            </span>
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-              {item.language}
-            </span>
-          </button>
-        ))}
-      </div>
-      <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <SimulatedBadge className="h-4" />
-        <span>
-          The repository list is scripted. Connecting GitHub for real is in the
-          GitHub screen.
-        </span>
       </p>
     </div>
   );
@@ -196,15 +214,11 @@ function Door({
   );
 }
 
-function CreateButton({ mode }: { mode: "prompt" | "import" }) {
+function CreateButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" size="lg" disabled={pending} className="self-start">
-      {pending
-        ? "Working…"
-        : mode === "prompt"
-          ? "Start building"
-          : "Import and read it"}
+      {pending ? "Working…" : label}
     </Button>
   );
 }

@@ -68,8 +68,23 @@ const nextConfig: NextConfig = {
    * The Anthropic SDK is listed for the same reason: it ships its own JSON
    * fixtures and is large enough that bundling it buys nothing on a server that
    * already has node_modules.
+   *
+   * The two single-file-component compilers are here for a sharper reason: the
+   * preview loads them dynamically, and Turbopack tries to resolve a dynamic
+   * import at build time. Bundling `@vue/compiler-sfc` failed the build outright
+   * ("Module not found"), because that package resolves its own sub-graphs in a
+   * way the bundler cannot follow. They are server-only by nature — they run
+   * while compiling a preview document and never reach a browser — so leaving
+   * them to `require` at runtime is the correct arrangement, not a workaround.
    */
-  serverExternalPackages: ["esbuild", "openai", "@tailwindcss/cli"],
+  serverExternalPackages: [
+    "esbuild",
+    "openai",
+    "@tailwindcss/cli",
+    "@vue/compiler-sfc",
+    "svelte",
+    "svelte/compiler",
+  ],
 
   allowedDevOrigins: [...LAN_HOSTNAMES, ...EXTRA_ORIGINS],
 };

@@ -1,9 +1,15 @@
 import { notFound } from "next/navigation";
 
 import { ProjectClient } from "@/components/builder/project-client";
-import { GROQ_SETUP_HINT, isGroqConfigured, isSupabaseConfigured } from "@/lib/env";
+import {
+  GROQ_SETUP_HINT,
+  isGroqConfigured,
+  isSupabaseConfigured,
+  isVercelConfigured,
+} from "@/lib/env";
 import { DEMO_PROJECTS } from "@/lib/mock/demo-projects";
-import { getProject } from "@/lib/projects";
+import { getAgentModels, getLatestRun, getProject } from "@/lib/projects";
+import type { AgentKey } from "@/lib/pipeline/agents";
 import { listFiles } from "@/lib/agent/tools";
 import { createClient } from "@/lib/supabase/server";
 import type { Project, ProjectFile } from "@/lib/supabase/types";
@@ -56,12 +62,45 @@ export default async function ProjectPage({
     }
   }
 
+  // The most recent run's artifacts, so the inspector has something real to show
+  // on first paint. The graph's live state comes from the stream; this is the
+  // durable record behind it.
+  const artifacts: Partial<
+    Record<AgentKey, { artifact: unknown; model: string; files: string[] }>
+  > = {};
+
+  if (isSupabaseConfigured) {
+    const run = await getLatestRun(id);
+    const agents = (run?.agents ?? {}) as Record<string, unknown>;
+
+    for (const [key, value] of Object.entries(agents)) {
+      if (typeof value !== "object" || value === null) continue;
+      const entry = value as {
+        artifact?: unknown;
+        model?: unknown;
+        files?: unknown;
+      };
+      artifacts[key as AgentKey] = {
+        artifact: entry.artifact ?? null,
+        model: typeof entry.model === "string" ? entry.model : "",
+        files: Array.isArray(entry.files) ? (entry.files as string[]) : [],
+      };
+    }
+  }
+
+  // The per-agent model overrides, so the inspector's selector shows the value
+  // that is actually in force rather than an empty select.
+  const agentModels = isSupabaseConfigured ? await getAgentModels(id) : {};
+
   return (
     <ProjectClient
       project={project}
       initialFiles={files}
       agentReady={isGroqConfigured}
       setupHint={GROQ_SETUP_HINT}
+      artifacts={artifacts}
+      agentModels={agentModels}
+      vercelReady={isVercelConfigured}
     />
   );
 }

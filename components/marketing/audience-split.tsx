@@ -6,7 +6,7 @@ export function AudienceSplit() {
     <PageShell
       width="wide"
       id="audiences"
-      className="gap-0 py-16 sm:py-24"
+      className="gap-0 pt-20 pb-16 sm:pt-28 sm:pb-24"
     >
       <div className="flex max-w-2xl flex-col gap-3">
         <h2 className="font-heading text-2xl font-medium tracking-tight text-balance sm:text-3xl">
@@ -48,13 +48,6 @@ export function AudienceSplit() {
               <List title="The flow" items={lens.flow} numbered />
               <List title="What you get that the other side does not" items={lens.gets} />
             </div>
-
-            <p className="rounded-lg border border-border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
-              <span className="font-medium text-foreground">
-                What they need from the product:{" "}
-              </span>
-              {lens.needs}
-            </p>
 
             <div className="flex flex-col gap-2.5 border-t border-border pt-4">
               <p className="text-xs font-medium text-muted-foreground">

@@ -7,9 +7,13 @@ import { PageShell } from "@/components/layout/page-shell";
  *
  * Note what is deliberately *absent*: there is no "simple flow" and a
  * "developer flow" side by side. The pitch has just argued they are one product,
- * so showing two flows here would quietly contradict it. Instead the four steps
+ * so showing two flows here would quietly contradict it. Instead the three steps
  * are common, and each step names what each lens shows *within* it - which is
  * the actual product difference.
+ *
+ * The count in the heading below is three, and it has to match `STEPS.length`.
+ * It said "four" for a while, which is the kind of small unverified claim that
+ * makes a reviewer stop trusting the rest of the page.
  */
 const STEPS: {
   icon: LucideIcon;
@@ -50,7 +54,7 @@ export function HowItWorks() {
     >
       <div className="flex max-w-2xl flex-col gap-3">
         <h2 className="font-heading text-2xl font-medium tracking-tight text-balance sm:text-3xl">
-          The same four steps, whichever door you came in.
+          The same three steps, whichever door you came in.
         </h2>
         <p className="leading-relaxed text-muted-foreground text-balance">
           A project that started as a sentence and a project imported from a

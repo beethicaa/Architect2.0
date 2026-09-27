@@ -1,0 +1,14 @@
+﻿import { readFileSync } from "node:fs";
+const { createCheckpoint, getCheckpoints } = await import("./lib/pipeline/checkpoints.ts");
+const P = "72339854-2835-491f-af20-6246e7ffd8d6";
+const before = await getCheckpoints(P);
+console.log("before: " + before.length);
+const a = await createCheckpoint({ projectId: P, label: "PROBE first", source: "pipeline" });
+console.log("first  -> error=" + a.error);
+const b = await createCheckpoint({ projectId: P, label: "PROBE second", source: "pipeline" });
+console.log("second -> error=" + b.error + "   <-- this is what used to fail");
+const c = await createCheckpoint({ projectId: P, label: "PROBE third", source: "pipeline" });
+console.log("third  -> error=" + c.error);
+const after = await getCheckpoints(P);
+console.log("\ncheckpoints now: " + after.length + "  heads=" + after.filter(r => r.is_head).length);
+after.forEach(r => console.log("   " + (r.is_head?"HEAD":"    ") + "  " + r.label));

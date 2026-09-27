@@ -6,12 +6,12 @@ import * as React from "react";
 import { useFormStatus } from "react-dom";
 
 import { GoogleMark } from "@/components/auth/google-mark";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   type AuthState,
-  signInWithGoogle,
   signInWithPassword,
   signUpWithPassword,
 } from "@/lib/actions/auth";
@@ -64,10 +64,12 @@ export function AuthForm({
         </p>
       </header>
 
-      <form action={signInWithGoogle} className="flex flex-col gap-4">
-        {next ? <input type="hidden" name="next" value={next} /> : null}
-        <GoogleButton />
-      </form>
+      {/*
+        Outside the email form on purpose. It is a `type="button"` with its own
+        click handler now - see GoogleButton - so it no longer submits anything,
+        and a wrapping form would only have submitted the email fields with it.
+      */}
+      <GoogleButton next={next} />
 
       <div className="flex items-center gap-3">
         <span className="h-px flex-1 bg-border" aria-hidden />
@@ -180,23 +182,78 @@ function Field({
   );
 }
 
-function GoogleButton() {
-  const { pending } = useFormStatus();
+/**
+ * Google sign-in, started in the browser.
+ *
+ * This used to be `<form action={signInWithGoogle}>` — a Server Action calling
+ * `signInWithOAuth`. That is the fragile arrangement: PKCE stores a
+ * `code_verifier` in a cookie that the *server* has to set, and a Server Action
+ * that immediately calls `redirect()` drops that Set-Cookie often enough that the
+ * callback arrived with no verifier and failed with "could not be completed".
+ * Google had authenticated the user; the exchange simply could not finish.
+ *
+ * Starting the handshake from the browser is the arrangement Supabase's own SSR
+ * guide uses, and the reason is specific: the browser client writes the verifier
+ * to a cookie it controls, and that cookie is present when Google redirects back.
+ *
+ * The button is deliberately no longer inside the form — it carries no form data,
+ * and nesting it meant submitting the email form's fields with it.
+ */
+function GoogleButton({ next }: { next?: string }) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function start() {
+    setBusy(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const target = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(target)}`,
+          scopes: "email profile",
+        },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+        setBusy(false);
+        return;
+      }
+      // `skipBrowserRedirect` is the default in the browser client, so the URL
+      // has to be followed by hand.
+      if (data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+      setError("Google sign-in could not be started. Check NEXT_PUBLIC_SITE_URL matches this address.");
+      setBusy(false);
+    } catch {
+      setError("We could not reach Supabase to start Google sign-in.");
+      setBusy(false);
+    }
+  }
+
   return (
-    <Button
-      type="submit"
-      variant="outline"
-      size="lg"
-      disabled={pending}
-      className="w-full"
-    >
-      {pending ? (
-        <Loader2 className="animate-spin" />
-      ) : (
-        <GoogleMark className="size-4" />
-      )}
-      Continue with Google
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        onClick={() => void start()}
+        disabled={busy}
+        className="w-full"
+      >
+        {busy ? <Loader2 className="animate-spin" /> : <GoogleMark className="size-4" />}
+        {busy ? "Opening Google…" : "Continue with Google"}
+      </Button>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </>
   );
 }
 

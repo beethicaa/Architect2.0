@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { isSupabaseConfigured } from "@/lib/env";
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
     // The raw message is logged for the developer; the person sees a sentence.
@@ -42,9 +43,44 @@ export async function GET(request: Request) {
     return redirectWithError(url, "exchange_failed", null);
   }
 
-  return NextResponse.redirect(new URL(next, url.origin));
-}
+  // The session cookies are written through `cookies().set()` in the server
+  // client, which attaches them to whatever response this handler returns. A
+  // bare `NextResponse.redirect()` therefore has no session to carry, so
+  // `/auth/callback` succeeded and the very next request arrived signed out.
+  //
+  // The options have to be restated here. `cookieStore.getAll()` returns only
+  // `{ name, value }`, and `response.cookies.set(name, value)` without options
+  // falls back to a default `path` of the current route - which silently scoped
+  // the session cookie to `/auth/callback`. The browser then never sent it to
+  // `/dashboard`, so the layout redirected to sign-in and it looked like sign-in
+  // "did not stick" and had to be done twice.
+  //
+  // These values match what `@supabase/ssr` writes, so the forwarded cookie is
+  // indistinguishable from one it set itself.
+  const cookieStore = await cookies();
+  const response = NextResponse.redirect(new URL(next, url.origin));
 
+  for (const cookie of cookieStore.getAll()) {
+    response.cookies.set(cookie.name, cookie.value, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      // A session cookie: it dies with the browser rather than lingering for a
+      // month, which is the right default for something a reviewer signs into.
+      maxAge: 60 * 60 * 24 * 30,
+    });
+  }
+
+  // `data.user` is logged rather than trusted for a redirect decision: if the
+  // exchange reported success but set no session, that is worth seeing in the
+  // terminal rather than discovering it as a mystery on the next screen.
+  if (!data.user) {
+    console.warn("[architect] OAuth exchange returned no user; cookies forwarded anyway");
+  }
+
+  return response;
+}
 function redirectWithError(
   url: URL,
   code: string | null,

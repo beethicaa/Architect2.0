@@ -1,3 +1,6 @@
+import { redirect } from "next/navigation";
+
+import { SiteFooter } from "@/components/layout/site-footer";
 import { AgentTeam } from "@/components/marketing/agent-team";
 import { AudienceSplit } from "@/components/marketing/audience-split";
 import { Closing } from "@/components/marketing/closing";
@@ -5,6 +8,8 @@ import { Hero } from "@/components/marketing/hero";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 import { SiteNav } from "@/components/marketing/site-nav";
 import { TimeMachine } from "@/components/marketing/time-machine";
+import { isSupabaseConfigured } from "@/lib/env";
+import { getClaims } from "@/lib/supabase/server";
 
 /**
  * The landing page.
@@ -17,7 +22,33 @@ import { TimeMachine } from "@/components/marketing/time-machine";
  *   5. Time Machine — the objection answer ("what if it breaks something?").
  *   6. Close — CTA, plus the honesty note about what is real.
  */
-export default function Home() {
+export default async function Home({
+  searchParams,
+}: PageProps<"/">) {
+  /*
+   * A signed-in visitor never sees the marketing page.
+   *
+   * Two reasons, and the second is the bug that prompted it. Supabase's browser
+   * client handles a `?code=` on whatever page it lands on, so after a Google
+   * sign-in the root URL was left reading `/?code=8c119a1c-...` - a one-time
+   * credential sitting in the address bar, in the history, and in any screenshot
+   * taken of the app. Redirecting to the dashboard removes the parameter and is
+   * where someone who just signed in actually wants to be.
+   *
+   * Read server-side, so the check does not flash the marketing page first.
+   */
+  if (isSupabaseConfigured) {
+    const claims = await getClaims();
+    if (claims) redirect("/dashboard");
+  }
+
+  // A `?code=` with no session means the exchange failed. Strip it rather than
+  // leaving a dead credential in the URL.
+  const params = await searchParams;
+  if (typeof params.code === "string") {
+    redirect("/sign-in");
+  }
+
   return (
     <div className="flex min-h-dvh flex-col">
       <SiteNav />
@@ -31,20 +62,6 @@ export default function Home() {
       </main>
       <SiteFooter />
     </div>
-  );
-}
-
-function SiteFooter() {
-  return (
-    <footer className="border-t border-border">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <p>Architect 2.0 — a hiring assignment.</p>
-        <p>
-          Auth and projects are real (Supabase). Agent runs, code generation,
-          previews and deploys are simulated, and every screen says so.
-        </p>
-      </div>
-    </footer>
   );
 }
 

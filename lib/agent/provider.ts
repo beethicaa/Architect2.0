@@ -143,13 +143,14 @@ export function createProvider(modelId?: string): Provider {
       const stream = await client.chat.completions.create({
         model,
         messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
-        tools: tools as OpenAI.Chat.ChatCompletionTool[],
         stream: true,
         // Groq rewrites 0 to 1e-8, so ask for a small non-zero value when we
         // want it to behave deterministically. 0.1 is low but valid.
         temperature: 0.1,
         max_tokens: maxTokens,
-        parallel_tool_calls: true,
+        ...(tools.length > 0
+          ? { tools: tools as OpenAI.Chat.ChatCompletionTool[], parallel_tool_calls: true }
+          : {}),
         // Ask for usage on the final chunk. Without this an OpenAI-compatible
         // stream reports nothing, and the run ledger displayed "0 in / 0 out" -
         // which is worse than showing nothing, because it looks like the meter

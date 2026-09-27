@@ -88,6 +88,22 @@ export function authCallbackErrorMessage(
   if (code === "supabase_unconfigured") {
     return SUPABASE_HINT;
   }
+  /*
+    The exchange step is where a mismatch between two hosts shows up.
+
+    `signInWithOAuth` stores the PKCE verifier in a cookie on whatever host the
+    action ran on, and `exchangeCodeForSession` needs that exact cookie back. So
+    signing in at `http://192.168.1.4:3000` and being handed back at
+    `http://localhost:3000` - which is what happens when NEXT_PUBLIC_SITE_URL says
+    localhost - loses the verifier and fails here, indistinguishable from a real
+    rejection.
+
+    "Sign-in could not be completed (exchange failed)" told them nothing, which is
+    why this is spelled out.
+  */
+  if (code === "exchange_failed") {
+    return "Sign-in could not be completed. This usually means the address you signed in from does not match the one Architect sends you back to. Set NEXT_PUBLIC_SITE_URL to the address in your browser, then try again.";
+  }
   if (!code) return authErrorMessage(description ?? "");
   return `Sign-in could not be completed (${code.replace(/_/g, " ")}).`;
 }

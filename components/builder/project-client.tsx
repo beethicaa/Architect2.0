@@ -12,6 +12,7 @@
 import * as React from "react";
 
 import { BuilderWorkspace } from "@/components/builder/builder-workspace";
+import type { AgentKey } from "@/lib/pipeline/agents";
 import type { Project, ProjectFile } from "@/lib/supabase/types";
 
 export function ProjectClient({
@@ -19,6 +20,9 @@ export function ProjectClient({
   initialFiles,
   agentReady,
   setupHint,
+  artifacts,
+  agentModels,
+  vercelReady,
 }: {
   project: Project;
   initialFiles: ProjectFile[];
@@ -31,6 +35,14 @@ export function ProjectClient({
    */
   agentReady: boolean;
   setupHint: string;
+  /** The last run's per-agent artifacts, read server-side. */
+  artifacts: Partial<
+    Record<AgentKey, { artifact: unknown; model: string; files: string[] }>
+  >;
+  /** Per-agent model overrides, read server-side. */
+  agentModels: Record<string, string>;
+  /** Whether a Vercel token is configured, read server-side. */
+  vercelReady: boolean;
 }) {
   const [files, setFiles] = React.useState<ProjectFile[]>(initialFiles);
   const [tick, setTick] = React.useState(0);
@@ -70,6 +82,9 @@ export function ProjectClient({
       reloadFiles={reloadFiles}
       agentReady={agentReady}
       setupHint={setupHint}
+      artifacts={artifacts}
+      agentModels={agentModels}
+      vercelReady={vercelReady}
     />
   );
 }

@@ -44,21 +44,21 @@ const BASE: Omit<Version, "files" | "receipt" | "summary">[] = [
     id: "v2",
     label: "Second pass",
     createdAt: "2026-09-24T12:41:55.000Z",
-    agentRun: "run_2026_09_24_02 - 4 steps - 18,220 tokens",
+    agentRun: "planner -> researcher -> data_schema -> data_wiring -> interface - 5 agents - 18,220 tokens",
     screens: 4,
   },
   {
     id: "v3",
-    label: "Sign in with Google",
+    label: "Saves as you go",
     createdAt: "2026-09-25T08:15:20.000Z",
-    agentRun: "run_2026_09_25_01 - 6 steps - 24,900 tokens",
+    agentRun: "data_wiring -> interface - 2 agents - 24,900 tokens",
     screens: 4,
   },
   {
     id: "v4",
-    label: "Scheduled follow-up",
+    label: "Reviewer's pass",
     createdAt: "2026-09-26T11:02:00.000Z",
-    agentRun: "run_2026_09_26_01 - 5 steps - 15,440 tokens",
+    agentRun: "reviewer -> interface - 2 agents - 15,440 tokens",
     screens: 4,
   },
 ];
@@ -69,30 +69,43 @@ const BASE: Omit<Version, "files" | "receipt" | "summary">[] = [
  * The receipt is the whole point of the simple lens: it is the one place a
  * non-technical user reads what an agent did, so it is written in the language
  * of the request rather than as a diffstat.
+ *
+ * These describe *the shape* of a build rather than one particular app. They used
+ * to be written around a journalling example, which was a mistake on a marketing
+ * page: a visitor who came to build something else reads "your journal went from
+ * an empty folder" and concludes the product only does journals. The subject is
+ * now the user's own app, referred to as "your app".
  */
 const RECEIPTS: Record<string, { v1: string; v2: string; v3: string; v4: string }> = {
   journal: {
-    v1: "Your journal went from an empty folder to four screens you can click through.",
-    v2: "Entries can now be saved with a date and a mood, instead of typed in by hand. Both are checked before saving.",
-    v3: "People can now sign in with Google. Entries only show for the person who wrote them.",
-    v4: "A gentle reminder arrives each evening. It is sent by a scheduled job, not by the app you are using.",
+    v1: "Your app went from an empty folder to four screens you can click through.",
+    v2: "Records can now be created and edited, with the fields checked before saving.",
+    v3: "Nothing is lost if you close the tab. Your work is kept on this device and picked up where you left it.",
+    v4: "A reviewer looked for ways to break it, and the interface agent fixed what it found before you had to ask.",
   },
   generic: {
     v1: "Your app went from an empty folder to four screens you can click through.",
     v2: "Records can now be created and edited, with the fields checked before saving.",
-    v3: "People can now sign in with Google. Records only show for the person who owns them.",
-    v4: "A scheduled job handles the routine work, so the app stays quick when you use it.",
+    v3: "Nothing is lost if you close the tab. Your work is kept on this device and picked up where you left it.",
+    v4: "A reviewer looked for ways to break it, and the interface agent fixed what it found before you had to ask.",
   },
 };
 
-/** The app kind, so the receipts can be written for the right subject. */
+/**
+ * The app kind, so the receipts can be written for the right subject.
+ *
+ * Only the builder's own timeline passes a prompt. The marketing page calls
+ * `versionsFor()` with nothing, which returns the subject-neutral receipts -
+ * a page for visitors who may be building anything must not read as though it
+ * only builds journals.
+ */
 function kindOf(prompt: string): "journal" | "generic" {
   const text = prompt.toLowerCase();
   return /journal|diary|journall|gratitude/.test(text) ? "journal" : "generic";
 }
 
 /** The Time Machine timeline for a project. */
-export function versionsFor(prompt: string): Version[] {
+export function versionsFor(prompt = ""): Version[] {
   const receipts = RECEIPTS[kindOf(prompt)];
   const files = [
     "app/page.tsx",
@@ -102,8 +115,8 @@ export function versionsFor(prompt: string): Version[] {
   const summaries = [
     "4 screens - 3 tables - deployed",
     "3 screens changed - 1 library added",
-    "2 screens changed - 1 data model changed",
-    "1 new flow - 1 background job",
+    "1 screen changed - storage added",
+    "1 flow reviewed - issues fixed",
   ];
 
   return BASE.map((version, index) => ({

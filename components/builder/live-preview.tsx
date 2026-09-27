@@ -41,6 +41,8 @@ export function LivePreview({
 }) {
   const [device, setDevice] = React.useState<Device>("desktop");
   const [nonce, setNonce] = React.useState(0);
+  const [repairing, setRepairing] = React.useState(false);
+  const [repairError, setRepairError] = React.useState<string | null>(null);
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
 
   // The error is stored against the build it came from rather than cleared in an
@@ -52,8 +54,157 @@ export function LivePreview({
   // The agent hook bumps `refresh` on every write; a manual reload adds to it so
   // both paths invalidate the same cache key.
   const version = refresh + nonce;
-  const src = `/api/projects/${projectId}/preview?v=${version}`;
+  // A counter, not a content key.
+  //
+  // It resets to 0 on every page load, so the browser can be holding a document
+  // from an earlier build under the very same URL - which is exactly how a user
+  // ended up staring at "seedDataIfEmpty is not a function" while the Code tab
+  // showed that function sitting in lib/storage.ts. The two disagreed and
+  // nothing on screen said which was stale.
+  //
+  // The route now returns `x-architect-fingerprint`: a hash of the exact file
+  // contents behind the document. Folding it into the URL makes the document
+  // content-addressed, so different files can never share a URL and a stale
+  // preview cannot be served at all.
+  //
+  // The nonce exists because content-addressing alone has a hole: the fingerprint
+  // is only known *after* a successful response, so a run that fails to compile
+  // keeps the same URL forever and the browser is free to reuse the document it
+  // already has. That is how one specific error survived three rounds of fixing
+  // code that provably no longer produced it — the panel was showing a cached
+  // document from a project that had since been deleted and re-imported.
+  //
+  // A per-mount nonce guarantees the first request of every visit is fresh, and
+  // the fingerprint then pins it to the exact files for as long as they hold.
+  const [visitId] = React.useState(() => Math.random().toString(36).slice(2, 10));
+  const [fingerprint, setFingerprint] = React.useState("");
+  const src = `/api/projects/${projectId}/preview?v=${version}&n=${visitId}&h=${fingerprint}`;
   const runtimeError = failure && failure.version === version ? failure.text : null;
+
+  /*
+   * The build note comes back as a response header rather than being scraped out
+   * of the iframe, which would need a same-origin access the sandbox deliberately
+   * withholds. Scoped to this version, for the same reason the runtime error is:
+   * a newer build invalidates an older message, and the two requests can land
+   * out of order.
+   */
+  const [buildNote, setBuildNote] = React.useState<{ version: number; text: string } | null>(
+    null,
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // A HEAD would be ideal, but the route builds the document to answer, so
+      // the cheapest honest read is the same GET the frame makes, discarded.
+      const response = await fetch(src, { cache: "no-store" }).catch(() => null);
+      if (cancelled || !response) return;
+
+      // The route refuses an anonymous caller with 401 rather than compiling an
+      // empty workspace, which is the honest answer but an invisible one: the
+      // frame would simply be blank. Surfacing it here means a signed-out visitor
+      // is told to sign in, rather than being left to wonder whether the build is
+      // broken. A network failure is deliberately not handled the same way —
+      // keeping the previous document is more useful than clearing it.
+      if (response.status === 401) {
+        setBuildNote({ version, text: "Your session has expired. Sign in again to see the preview." });
+        return;
+      }
+
+      // Pick up the content fingerprint and fold it into the frame's URL, so the
+      // document the user ends up looking at is provably the one built from the
+      // files currently in the database.
+      const next = response.headers.get("x-architect-fingerprint");
+      if (!cancelled && next) setFingerprint(next);
+      const note = response.headers.get("x-architect-note");
+      if (note) {
+        try {
+          setBuildNote({ version, text: decodeURIComponent(note) });
+        } catch {
+          setBuildNote({ version, text: note });
+        }
+      } else {
+        setBuildNote(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [src, version]);
+
+  /*
+   * A build note is not an error, and the difference matters more than it sounds.
+   *
+   * `compilePreview` returns `ok: true` whenever it produced a document, and puts
+   * anything worth saying in `error` as *notes*: a stubbed file, an inline style
+   * that will not render. Those are warnings about quality. A genuine failure
+   * comes back as `ok: false`, and only that deserves the word "crash".
+   *
+   * The panel used to render both in one red alert, so an app that mounted
+   * perfectly and looked slightly off claimed "The app crashed on load" above
+   * fourteen notes about styling. The user could not see the working app because
+   * the only thing the panel would tell them was a failure that had not happened.
+   */
+  const note = buildNote && buildNote.version === version ? buildNote.text : null;
+
+  // "N sections not written yet" is a different failure again: a file the app
+  // imports does not exist, so the screen is incomplete rather than unstyled.
+  const incomplete = note?.includes("sections not written yet") ?? false;
+  const blocked = note != null && !incomplete;
+
+  // The notes that are purely about styling never cost the user their screen.
+  const styleOnly = blocked && !/did not compile/.test(note) && !incomplete;
+
+  const buildError = blocked && !styleOnly ? note : null;
+  const buildWarning = blocked ? note : null;
+
+  /*
+   * "Ask the team to fix this" is a first-class action, not something the user
+   * has to phrase in prose.
+   *
+   * Without it, a build whose entry file does not compile is a dead end: there is
+   * no preview to look at, no error in the thread, and nothing to copy. The user
+   * has to guess the wording that will make the agent rewrite the right file.
+   *
+   * It is the same pipeline the composer starts, so a repair is budgeted,
+   * checkpointed and inspectable like any other run — and it carries the real
+   * compiler message, so the agent is told the line rather than guessing.
+   */
+  const repair = async () => {
+    setRepairing(true);
+    setRepairError(null);
+    try {
+      const response = await fetch(`/api/projects/${projectId}/repair`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ error: buildError }),
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        setRepairError(body?.error ?? "We could not start the repair.");
+        return;
+      }
+
+      // The stream is drained but not rendered here: the agent thread is where
+      // the run is shown, and the preview refreshes on the next write. Draining
+      // matters — an unread body leaves the request hanging.
+      const reader = response.body?.getReader();
+      if (reader) {
+        for (;;) {
+          const { done } = await reader.read();
+          if (done) break;
+        }
+      }
+      setNonce((n) => n + 1);
+    } catch {
+      setRepairError("We could not reach the server.");
+    } finally {
+      setRepairing(false);
+    }
+  };
 
   // Errors thrown inside the generated app are mirrored up from the preview
   // document (see `lib/agent/preview.ts`). Without this they would only reach a
@@ -123,20 +274,72 @@ export function LivePreview({
             DEVICE_WIDTH[device],
           )}
         >
-          {runtimeError ? (
+          {/*
+            A warning is amber, collapsed, and never says "crash". It sits above
+            the frame but stays out of the way, because the app genuinely works:
+            fourteen inline-style notes on a screen that rendered are a remark
+            about fidelity, not an outage. In a red alert at the top of the panel
+            they pushed the user's own interface off the screen entirely, and the
+            only thing the panel would tell them was a failure that had not
+            happened.
+          */}
+          {buildWarning ? (
+            <details className="border-b border-warning/30 bg-warning/5">
+              <summary className="cursor-pointer list-none px-3 py-1.5 text-xs text-warning hover:bg-warning/10">
+                <span className="font-medium">
+                  {incomplete
+                    ? "Some sections are not written yet."
+                    : "This may look different from the real app."}
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  {incomplete
+                    ? "The app asks for a file that does not exist yet, so those parts are placeholders."
+                    : "The code is real, but some styling will not carry over. Tap to see why."}
+                </span>
+              </summary>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap border-t border-warning/20 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                {buildWarning}
+              </pre>
+            </details>
+          ) : null}
+
+          {buildError || runtimeError || repairError ? (
             <div
               role="alert"
               className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/5 px-3 py-2 text-xs"
             >
               <span className="min-w-0 flex-1">
-                <span className="font-medium text-destructive">The app crashed on load.</span>{" "}
+                <span className="font-medium text-destructive">
+                  {repairError
+                    ? "The repair could not start."
+                    : runtimeError
+                      ? "The app crashed on load."
+                      : "Part of this app did not compile."}
+                </span>{" "}
                 <span className="text-muted-foreground">
-                  This is the real error from your app, sent up from the preview.
+                  {repairError
+                    ? "Nothing was changed."
+                    : runtimeError
+                      ? "This is the real error from your app, sent up from the preview."
+                      : "The rest of the app is running below."}
                 </span>
-                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
-                  {runtimeError}
-                </pre>
+                {buildError || runtimeError ? (
+                  <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+                    {buildError ?? runtimeError}
+                  </pre>
+                ) : null}
               </span>
+              {buildError && !runtimeError ? (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={repair}
+                  disabled={repairing}
+                  className="shrink-0"
+                >
+                  {repairing ? "Fixing…" : "Ask the team to fix it"}
+                </Button>
+              ) : null}
             </div>
           ) : null}
           {hasFiles ? (

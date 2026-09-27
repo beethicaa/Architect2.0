@@ -42,7 +42,6 @@ export async function signInWithPassword(
   _prev: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
-  console.error("[architect] ACTION_ENTERED signUpWithPassword");
   if (!isSupabaseConfigured) {
     return { ...initialState, error: SUPABASE_HINT };
   }
@@ -166,9 +165,16 @@ export async function signInWithGoogle(formData: FormData): Promise<void> {
       provider: "google",
       options: {
         redirectTo: `${getSiteUrl()}/auth/callback?next=${encodeURIComponent(next)}`,
-        queryParams: { access_type: "offline", prompt: "consent" },
-        // Remember where to send the user once Google hands them back. This is a
-        // cookie read by the callback route, never a query param we trust blindly.
+        // `access_type=offline` and `prompt=consent` were both requested here and
+        // removed. The server client is already PKCE, so the flow itself was
+        // never the problem - but `prompt=consent` made Google re-prompt on every
+        // sign-in, and forcing an offline token asks Google for a refresh token
+        // that Supabase manages itself.
+        //
+        // (I briefly added `flowType: "pkce"` here on the theory that implicit
+        // flow was returning tokens in the fragment. That was wrong: the server
+        // client is PKCE-only and does not accept the option. TypeScript caught
+        // it, which is the only reason it did not ship.)
         scopes: "email profile",
       },
     });

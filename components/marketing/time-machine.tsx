@@ -13,7 +13,7 @@ import { versionsFor } from "@/lib/mock/versions";
  */
 export function TimeMachine() {
   return (
-    <PageShell width="wide" id="history" className="gap-0 py-16 sm:py-24">
+    <PageShell width="wide" id="history" className="gap-0 pt-24 pb-16 sm:pt-32 sm:pb-24">
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-16">
         <div className="flex flex-col gap-4">
           <span className="inline-flex w-fit items-center gap-1.5 rounded-4xl border border-border px-2.5 py-1 text-xs text-muted-foreground">
@@ -26,27 +26,30 @@ export function TimeMachine() {
           <p className="leading-relaxed text-muted-foreground text-balance">
             The number one reason people stop trusting an agentic builder is not
             that it is bad. It is that they cannot tell what it just did, and
-            asking it to undo that is a coin flip. So every change is saved, with
-            a receipt in plain language and, for developers, the agent run and
-            diff that produced it.
+            asking it to undo that is a coin flip. So every build is saved with a
+            real snapshot of the files behind it, a receipt in plain language,
+            and - for developers - the agents that ran, the models they ran on,
+            and the lines that changed.
           </p>
 
           <ul className="flex flex-col gap-2.5">
             <Reading
               lens="Simple"
-              text="Go back to how it looked before the calendar."
+              text="Go back to how it looked before the calendar. We restore the files themselves, not just the conversation."
             />
             <Reading
               lens="Developer"
-              text="Revert to 3d5aa890, the commit before the UI agent ran."
+              text="Revert to 3d5aa890 - the checkpoint before the interface agent ran, with the run id and the diff it would undo."
             />
           </ul>
         </div>
 
-        {/* A journalling project, so the receipts read as entries and reminders
-            rather than reusing a booking demo on the marketing page. */}
+        {/* No prompt is passed, so the receipts stay subject-neutral. The previous
+            call passed "a daily journalling app", which selected a journal-specific
+            set of receipts - on a page for visitors who may be building anything.
+            The timeline is a shape, not a specific app. */}
         <ol className="flex flex-col gap-2">
-          {versionsFor("a daily journalling app").map((version, index) => (
+          {versionsFor().map((version, index) => (
             <li
               key={version.id}
               className="flex flex-col gap-1.5 rounded-xl border border-border p-4"

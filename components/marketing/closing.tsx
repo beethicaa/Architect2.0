@@ -21,9 +21,10 @@ export function Closing() {
           everything we do.
         </h2>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground text-balance">
-          This is a hiring assignment. Accounts and projects are real, backed by
-          Supabase. Agent runs, generated code, previews and deploys are
-          simulated on purpose — and every screen that simulates something says so.
+          This is a hiring assignment. Accounts, projects, files, checkpoints and
+          deploys are real. The agent runs on a real model through a real tool
+          loop — what it produces is written and built for real, and anything
+          simulated is labelled as such.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2.5">
           <Button asChild size="lg">

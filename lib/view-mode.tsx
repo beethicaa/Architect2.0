@@ -17,11 +17,23 @@
 
 import * as React from "react";
 
+import { saveLens } from "@/lib/actions/profile";
 import type { ViewMode } from "@/lib/types/domain";
 
 const STORAGE_KEY = "architect:view-mode";
 
 export const VIEW_MODE_COOKIE = "architect-view-mode";
+
+/**
+ * Server actions take FormData, but the provider has a plain `ViewMode` in hand.
+ * Building the form here keeps the action signature honest without making every
+ * caller remember the field name.
+ */
+function formDataFor(mode: ViewMode): FormData {
+  const form = new FormData();
+  form.set("view_mode", mode);
+  return form;
+}
 
 /**
  * Plain-language and technical wording for the same event. Anything that must
@@ -97,6 +109,32 @@ function readStoredMode(): ViewMode {
     : "simple";
 }
 
+/**
+ * The neutral default documented on `ViewModeProvider`. Exported so a Server
+ * Component can reuse the exact same fallback if it ever needs to render lens-
+ * dependent copy without the provider.
+ */
+export const DEFAULT_VIEW_MODE: ViewMode = "simple";
+
+/**
+ * `defaultMode` is the **account** lens: read server-side from
+ * `profiles.view_mode` and passed down. That is what makes the toggle follow the
+ * person rather than the browser — Section 2's "persistent mode toggle stored
+ * per-user, not a one-time onboarding choice".
+ *
+ * It is also given priority over localStorage on purpose. Two devices showing
+ * two different products for one account is worse than a stale tab, and the
+ * server value is the one the rest of the product (settings, onboarding, other
+ * sessions) agrees with. localStorage only decides when there is *no* account
+ * behind the page — the unconfigured/mocked flows — so the lens still survives a
+ * reload there instead of silently resetting.
+ *
+ * `runtimeMode` exists so a click is instant. Without it, the toggle would have
+ * to wait for the Server Component to return before anything changed, and a
+ * control that does nothing for a round trip reads as broken.
+ */
+let runtimeMode: ViewMode | null = null;
+
 function subscribe(onChange: () => void) {
   listeners.add(onChange);
   // Another tab changing the lens should update this one — cheap to support and
@@ -111,24 +149,18 @@ function subscribe(onChange: () => void) {
   };
 }
 
-function getSnapshot(): ViewMode {
-  return readStoredMode();
+function notify() {
+  for (const listener of listeners) listener();
 }
 
-/**
- * The neutral default documented on `ViewModeProvider`. Exported so a Server
- * Component can reuse the exact same fallback if it ever needs to render lens-
- * dependent copy without the provider.
- */
-export const DEFAULT_VIEW_MODE: ViewMode = "simple";
-
 function writeStoredMode(mode: ViewMode) {
+  runtimeMode = mode;
   try {
     window.localStorage.setItem(STORAGE_KEY, mode);
   } catch {
     // Private mode / storage disabled: the lens still works for this session.
   }
-  for (const listener of listeners) listener();
+  notify();
 }
 
 interface ViewModeContextValue {
@@ -140,36 +172,52 @@ interface ViewModeContextValue {
 
 const ViewModeContext = React.createContext<ViewModeContextValue | null>(null);
 
-/**
- * `defaultMode` is what a Server Component passed in (it read the cookie). It
- * is used for the very first client render; the stored preference takes over as
- * soon as the subscription is established.
- */
 export function ViewModeProvider({
   children,
-  defaultMode = "simple",
+  defaultMode,
+  persist = false,
 }: {
   children: React.ReactNode;
+  /** The account's saved lens, when there is an account to have one. */
   defaultMode?: ViewMode;
+  /** Write changes back to `profiles.view_mode` instead of only to this tab. */
+  persist?: boolean;
 }) {
-  // One subscription: the stored preference on the client, and the
-  // server-provided `defaultMode` for the hydration render.
+  // Server snapshot is always the account value, so the hydrated HTML matches.
+  const getSnapshot = React.useCallback(
+    () => runtimeMode ?? defaultMode ?? readStoredMode(),
+    [defaultMode],
+  );
+  const getServerSnapshot = React.useCallback(
+    () => defaultMode ?? DEFAULT_VIEW_MODE,
+    [defaultMode],
+  );
+
   const viewMode = React.useSyncExternalStore(
     subscribe,
     getSnapshot,
-    () => defaultMode,
+    getServerSnapshot,
   );
 
-  const setViewMode = React.useCallback((mode: ViewMode) => {
-    writeStoredMode(mode);
-    try {
-      // A cookie as well, so the *next* server render can pick it up and avoid
-      // rendering the other audience's copy on first paint.
-      document.cookie = `${VIEW_MODE_COOKIE}=${mode}; path=/; max-age=31536000; samesite=lax`;
-    } catch {
-      // Non-browser context; nothing to persist.
-    }
-  }, []);
+  const setViewMode = React.useCallback(
+    (mode: ViewMode) => {
+      writeStoredMode(mode);
+      try {
+        // A cookie as well, so a *server* render that does not read the profile
+        // still does not flip a technical user's workspace back to plain language.
+        document.cookie = `${VIEW_MODE_COOKIE}=${mode}; path=/; max-age=31536000; samesite=lax`;
+      } catch {
+        // Non-browser context; nothing to persist.
+      }
+
+      if (persist) {
+        // Fire-and-forget: the lens already changed locally, so a failed write
+        // must not undo the click. It converges on the next page load either way.
+        void saveLens(formDataFor(mode)).catch(() => undefined);
+      }
+    },
+    [persist],
+  );
 
   const value = React.useMemo<ViewModeContextValue>(
     () => ({

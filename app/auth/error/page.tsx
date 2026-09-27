@@ -1,6 +1,7 @@
 import { authCallbackErrorMessage } from "@/lib/auth-error";
 import { isSupabaseConfigured, SUPABASE_SETUP_HINT } from "@/lib/env";
 import { ErrorState } from "@/components/states/error-state";
+import { SiteFooter } from "@/components/layout/site-footer";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import Link from "next/link";
 
@@ -22,7 +23,14 @@ export default async function AuthErrorPage({
   // cancelled at Google's consent screen, telling them to configure Supabase
   // would be actively misleading. The setup hint is only shown when there is no
   // error code to explain (i.e. they arrived here from the app, not Google).
-  const hasErrorCode = Boolean(code || description);
+  //
+  // `no_code` is treated as "nothing is known" rather than as a failure. Someone
+  // who follows an old bookmark, or lands here after a successful sign-in that
+  // already finished, should be offered the sign-in page - not told their
+  // provider refused them for a reason we cannot see.
+  const hasErrorCode = Boolean(
+    (code && code !== "no_code" && code !== "unknown") || description,
+  );
   const message =
     hasErrorCode || isSupabaseConfigured
       ? authCallbackErrorMessage(code, description)
@@ -47,6 +55,11 @@ export default async function AuthErrorPage({
           className="w-full max-w-md"
         />
       </div>
+
+      {/* The same footer as every other screen. This page is reached by a failed
+          redirect, so it is the one place a user is most likely to land having
+          never seen the product - and the footer is what tells them whose it is. */}
+      <SiteFooter />
     </main>
   );
 }

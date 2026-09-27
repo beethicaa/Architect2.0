@@ -66,6 +66,30 @@ export function requireGroqEnv(): { apiKey: string } {
   return { apiKey: groqKey };
 }
 
+/* ------------------------------------------------------- admin (destructive) */
+
+/**
+ * The service-role key, used for exactly one operation: deleting an account.
+ *
+ * Server-only and optional. It is never exposed to a client component and is
+ * never sent to a browser - the only consumer is the delete-account action,
+ * which needs it because removing a row from `auth.users` bypasses row-level
+ * security and cannot be done with the publishable key.
+ */
+const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+
+export const isServiceRoleConfigured = serviceRoleKey.length > 0;
+
+/**
+ * The admin key, or `null` when it is not set.
+ *
+ * Returning `null` rather than throwing lets the caller degrade honestly: the
+ * UI can say which key to add instead of showing a crash.
+ */
+export function getServiceRoleKey(): string | null {
+  return serviceRoleKey || null;
+}
+
 /* ------------------------------------------------------------------ GitHub */
 
 const githubClientId = (process.env.GITHUB_CLIENT_ID ?? "").trim();
@@ -76,6 +100,43 @@ export const isGitHubConfigured =
 
 export const GITHUB_SETUP_HINT =
   "GitHub is not configured. Create an OAuth app at https://github.com/settings/developers, then set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in .env.local.";
+
+/**
+ * The exact callback URL this app will ask GitHub for.
+ *
+ * Kept as one derived value so the UI can show it. GitHub matches the
+ * `redirect_uri` character for character, and it is a common, silent failure: a
+ * developer browses at `http://192.168.1.4:3000`, the OAuth app was registered
+ * with `http://localhost:3000/...`, and GitHub answers with "The redirect_uri
+ * is not associated with this application" - a page that gives no hint that the
+ * fix is one field in the GitHub settings.
+ */
+export const githubCallbackUrl = `${(process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/+$/, "")}/api/github/callback`;
+
+/**
+ * True when the callback URL will not match the common registration.
+ *
+ * A LAN or non-local host is the case worth warning about, because the OAuth app
+ * is almost always registered with `localhost` and the mismatch only shows up as
+ * a GitHub error page. On a real deployment the host is a public domain, which
+ * has to be registered too, but a warning there would be noise on every load.
+ */
+export const githubHostLooksLocal =
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(
+    (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/+$/, ""),
+  );
+
+/**
+ * What to do about a mismatch, in one sentence, naming the exact URL.
+ *
+ * Returning a value rather than a boolean is deliberate: the useful thing to show
+ * someone is the string their GitHub app needs to contain, not the fact that
+ * something is wrong.
+ */
+export const githubRedirectHint = githubHostLooksLocal
+  ? null
+  : `GitHub matches the callback URL exactly. Yours must be listed in the OAuth app: ${githubCallbackUrl} — add it under Authorization callback URL, alongside localhost.`;
+
 
 /* ------------------------------------------------------------------ Vercel */
 

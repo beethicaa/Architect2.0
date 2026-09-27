@@ -8,10 +8,26 @@ import type { Database } from "@/lib/supabase/types";
  * Server-side Supabase client: Server Components, Server Actions, Route
  * Handlers. Sessions are stored in cookies so the server can render a signed-in
  * state on first paint (no auth flash).
+ *
+ * `options.serviceKey` builds a **service-role** client instead. That bypasses
+ * RLS, so it is deliberately not the default and the only caller is the GitHub
+ * token store — the one place that must read a table which has no select policy
+ * precisely so that a browser session can never read it.
+ *
+ * When a service key is used there is no cookie jar, so the client cannot act
+ * as the signed-in user even by accident. The caller has already established
+ * identity via `getClaims()`.
  */
-export async function createClient() {
+export async function createClient(options: { serviceKey?: string } = {}) {
   const cookieStore = await cookies();
   const { url, key } = requireSupabaseEnv();
+
+  if (options.serviceKey) {
+    return createServerClient<Database>(url, options.serviceKey, {
+      cookies: { getAll: () => [], setAll: () => undefined },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
 
   return createServerClient<Database>(url, key, {
     cookies: {

@@ -121,8 +121,52 @@
   --animate-live-pulse: live-pulse 2.4s ease-in-out infinite;
   --animate-stream-caret: stream-caret 1.1s steps(2, start) infinite;
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  /*
+   * A heartbeat, not a pulse.
+   *
+   * A real heart beats in a double thump - "lub-dub" - roughly 1.1s apart at rest.
+   * `live-pulse` is a single smooth swell, which reads as a breathing dot. Applied
+   * to a heart icon it looks like the logo is breathing rather than beating, which
+   * is the wrong gesture entirely.
+   *
+   * The keyframe shape below is the lub-dub: a large squash on 0%, a smaller one
+   * at 14%, then rest. The two peaks are the two sounds.
+   */
+  --animate-heartbeat: heartbeat 1.1s ease-in-out infinite;
 }
 
+/*
+ * The lub-dub.
+ *
+ * Two peaks of different size, close together, then a long rest - which is what
+ * separates a heartbeat from a pulse. The 0% squash is the strong beat, 14% is
+ * the softer second, and everything after 30% is diastole.
+ *
+ * `transform` scales and `transform-origin` keeps the bottom tip anchored, so the
+ * heart appears to thump from its point rather than growing out of its centre.
+ * The scale peaks are small (1.16) on purpose: a heart that punches to 1.4 looks
+ * like a cartoon balloon.
+ */
+@keyframes heartbeat {
+  0% {
+    transform: scale(1);
+  }
+  8% {
+    transform: scale(1.16);
+  }
+  16% {
+    transform: scale(1);
+  }
+  24% {
+    transform: scale(1.1);
+  }
+  34% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
 @keyframes live-pulse {
   0%,
   100% {

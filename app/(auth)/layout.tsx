@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { SiteFooter } from "@/components/layout/site-footer";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { GoogleMark } from "@/components/auth/google-mark";
 
@@ -36,13 +37,7 @@ export default function AuthLayout({
           <div className="w-full max-w-sm">{children}</div>
         </div>
 
-        <footer className="flex flex-col gap-1 text-xs text-muted-foreground">
-          <p>
-            One product, two ways in. The Simple view is for people who describe
-            what they want; the Developer view is for people who want to see the
-            code.
-          </p>
-        </footer>
+        <SiteFooter className="-mx-6 border-t-0 sm:-mx-10" />
       </div>
 
       {/* Pitch side */}
