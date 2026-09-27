@@ -95,19 +95,57 @@ async function compileCss(files: FileRecord[]): Promise<string> {
 
   try {
     /*
-     * The stylesheet handed to Tailwind.
+     * Tailwind's own stylesheet, read as TEXT rather than imported by name.
      *
-     * The project's own CSS is *inlined* rather than `@import`ed by path. An
-     * import would be resolved relative to `base` - the deployment root - where
+     * This is the bug that made every deployed preview colourless, and it is
+     * worth stating precisely because it is invisible locally.
+     *
+     * `@import "tailwindcss"` asks Tailwind to resolve a bare package specifier.
+     * That works on a developer machine, where `node_modules` sits next to the
+     * project. Inside a Vercel serverless function it does NOT: the deployed
+     * bundle is a traced subset, the package's `exports` map has no valid target
+     * there, and the compile dies with
+     *
+     *   Package path . is exported from package /var/task/node_modules/tailwindcss,
+     *   but no valid target file was found
+     *
+     * The catch below then returned the unstyled fallback, so every deployed
+     * preview rendered as a blank white page with browser-default black text -
+     * while the identical code, run locally, produced a full 60KB stylesheet.
+     * Three rounds were spent on that gap because every test ran the source in
+     * this process; nothing had exercised the deployed bundle.
+     *
+     * `node_modules/tailwindcss/index.css` is a real file, and it IS traced into
+     * the function, so reading it sidesteps package resolution entirely.
+     */
+    const tailwindEntry = path.join(process.cwd(), "node_modules", "tailwindcss", "index.css");
+    if (!existsSync(tailwindEntry)) {
+      throw new Error(
+        `Tailwind's stylesheet is missing at ${tailwindEntry}. It must be present in the ` +
+          `deployed function - check that "tailwindcss" is a runtime dependency.`,
+      );
+    }
+    const tailwindSource = readFileSync(tailwindEntry, "utf8");
+
+    /*
+     * The project's own CSS is *inlined* rather than `@import`ed by path, for the
+     * same reason: an import resolves against `base` - the deployment root - where
      * the generated project does not exist, so every custom theme was dropped
      * without an error. Concatenating the text sidesteps resolution entirely.
      *
-     * `@import "tailwindcss"` inside a project's own file is dropped: it is
-     * already imported above, and leaving it in makes Tailwind treat the rest of
-     * that file as a separate import boundary it cannot resolve.
+     * `@import "tailwindcss"` inside a project's own file is stripped: Tailwind's
+     * stylesheet is already inlined above, and leaving the import in would re-enter
+     * the same resolution path that just failed.
      */
     const projectStyles = projectCss
-      .map((file) => file.content.replace(/@import\s+["']tailwindcss["']\s*;?/g, ""))
+      .map((file) =>
+        file.content
+          .replace(/@import\s+["']tailwindcss(?:\/[^"']*)?["']\s*;?/g, "")
+          // Any other bare `@import "pkg"` in a generated stylesheet refers to a
+          // package that is not installed. Left in place it is another unresolvable
+          // import, and one of them is enough to lose the whole stylesheet.
+          .replace(/@import\s+["'][^."'][^"']*["']\s*;?/g, ""),
+      )
       .join("\n");
 
     const [{ compile }, { Scanner }] = await Promise.all([
@@ -115,10 +153,10 @@ async function compileCss(files: FileRecord[]): Promise<string> {
       import("@tailwindcss/oxide"),
     ]);
 
-    const compiled = await compile(
-      `@import "tailwindcss";\n${projectStyles}`,
-      { base: process.cwd(), onDependency: () => undefined },
-    );
+    const compiled = await compile(`${tailwindSource}\n${projectStyles}`, {
+      base: process.cwd(),
+      onDependency: () => undefined,
+    });
 
     const scannerForRun = new Scanner({
       sources: [{ base: root, pattern: "**/*", negated: false }],
