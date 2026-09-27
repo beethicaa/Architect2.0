@@ -4,7 +4,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import * as os from "node:os";
 import { promisify } from "node:util";
 
 
@@ -112,7 +111,6 @@ async function compileCss(files: FileRecord[]): Promise<string> {
 import { build, type BuildResult, type Plugin } from "esbuild";
 import { validateSource } from "@/lib/pipeline/validate";
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
 
 /**
  * Every plausible place `react` and `react-dom` live, most specific first.
@@ -139,39 +137,8 @@ import { createRequire } from "node:module";
  * normal resolution - which is what a developer machine wants, and turns a
  * missing build step into a slower preview rather than a broken one.
  */
-function reactRuntimeFile(): string | null {
-  const candidate = path.join(process.cwd(), "public", "preview", "react-runtime.js");
-  return existsSync(candidate) ? candidate : null;
-}
 
 /** The bare specifiers the preview substitutes with the pre-bundled file. */
-const REACT_SPECIFIERS = new Set([
-  "react",
-  "react/jsx-runtime",
-  "react/jsx-dev-runtime",
-  "react-dom",
-  "react-dom/client",
-]);
-
-const nodeSearchPaths = (): string[] => {
-  const candidates: string[] = [];
-
-  try {
-    const here = createRequire(import.meta.url).resolve("react");
-    candidates.push(path.dirname(here), path.join(path.dirname(here), ".."));
-  } catch {
-    // React is not resolvable from this module. The directory guesses below are
-    // then the only options, which is the situation this list exists to survive.
-  }
-
-  candidates.push(
-    path.join(process.cwd(), "node_modules"),
-    path.join(process.cwd(), "..", "node_modules"),
-    path.join(process.cwd(), ".next", "server", "node_modules"),
-  );
-
-  return [...new Set(candidates.filter((entry) => existsSync(entry)))];
-};
 
 
 import type { FileRecord } from "@/lib/agent/tools";
@@ -1154,8 +1121,6 @@ export async function compilePreview(
        * changes nothing that already worked and adds the locations that are
        * missed. The last entry is the realpath of this module's own `node_modules`
        * fallback, which is stable in both environments.
-       */
-      nodePaths: nodeSearchPaths(),
       // esbuild refuses to import CSS into JavaScript without an output path,
       // because it has to name the emitted stylesheet. With `write: false`
       // nothing is actually written — the path only has to exist for that name to
@@ -1164,7 +1129,25 @@ export async function compilePreview(
       // plain side-effect `import "./x.css"` never triggers, so the difference
       // only shows up on exactly the projects that use CSS Modules.
       outdir: path.join(os.tmpdir(), "architect-preview"),
-      format: "iife",
+      format: "esm",
+      /*
+       * React comes from a CDN, resolved by the browser through the import map
+       * in the document.
+       *
+       * It was bundled at build time instead, and that failed in production four
+       * separate ways - "Could not resolve" (no React package on a serverless
+       * filesystem), then "Cannot read file" (the CDN serves public/, the
+       * function's filesystem does not contain it), then the same after
+       * `outputFileTracingIncludes`, and finally a bundle whose export shapes
+       * did not match what generated code imports. Every one of those was an
+       * attempt to ship a library that a browser can fetch perfectly well.
+       *
+       * Marking it external means esbuild emits a real `import` and the browser
+       * resolves it. The preview is the one place where depending on a CDN is
+       * the right trade: it is short-lived, sandboxed, and a network hiccup
+       * shows a message rather than corrupting anything.
+       */
+      external: ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime"],
       platform: "browser",
       target: "es2020",
       jsx: "automatic",
@@ -1173,34 +1156,8 @@ export async function compilePreview(
         // constants the model will reflexively reach for.
         "process.env.NODE_ENV": '"production"',
       },
+
       plugins: [
-    {
-      name: "architect-react-runtime",
-      setup(build) {
-        const runtime = reactRuntimeFile();
-        if (!runtime) return;
-        const dir = path.dirname(runtime);
-
-        // Map each specifier onto the wrapper emitted at build time. Without
-        // this, esbuild looks for `react` in `node_modules`, which does not
-        // exist inside a serverless function - the failure that made every
-        // built and imported app render as "Could not resolve" in production
-        // while working perfectly on a developer machine.
-        build.onResolve({ filter: /^(react|react-dom)(\/.*)?$/ }, (args) => {
-          if (!REACT_SPECIFIERS.has(args.path)) return null;
-          const name =
-            args.path === "react-dom/client"
-              ? "react-dom-client.js"
-              : args.path === "react"
-                ? "react.js"
-                : args.path.endsWith("jsx-dev-runtime")
-                  ? "jsx-dev-runtime.js"
-                  : "jsx-runtime.js";
-          return { path: path.join(dir, name) };
-        });
-      },
-    },
-
         projectPlugin,
         {
           name: "architect-entry",
@@ -1285,6 +1242,7 @@ export async function compilePreview(
   const code = result.outputFiles?.[0]?.text ?? "";
   const css = await compileCss(files);
 
+
   const broken = brokenPaths.sort((a, b) => a.path.localeCompare(b.path));
   const notes: string[] = [];
   if (missingPaths.size > 0) {
@@ -1329,6 +1287,31 @@ function safeJson(value: string): string {
     .replace(/&/g, "\\u0026");
 }
 
+/*
+ * The import map that resolves React in the browser.
+ *
+ * Pinned to the version this app runs: a preview that silently rendered against
+ * a different React than the rest of the product would be a baffling bug to
+ * chase. esm.sh serves the production build of that exact version, so there are
+ * no development warnings and no double renders.
+ *
+ * Module-level because the document is assembled in a different function from the
+ * one that runs esbuild, and a constant describing the runtime does not belong to
+ * a particular call.
+ */
+const PREVIEW_IMPORT_MAP = JSON.stringify(
+  {
+    imports: {
+      react: "https://esm.sh/react@19.2.8",
+      "react/jsx-runtime": "https://esm.sh/react@19.2.8/jsx-runtime",
+      "react/jsx-dev-runtime": "https://esm.sh/react@19.2.8/jsx-dev-runtime",
+      "react-dom": "https://esm.sh/react-dom@19.2.8",
+      "react-dom/client": "https://esm.sh/react-dom@19.2.8/client",
+    },
+  },
+  null,
+  2,
+);
 function escapeForScript(code: string): string {
   return code.replace(/<\/script/gi, "<\\/script");
 }
@@ -1453,7 +1436,10 @@ window.__architect_env = Object.freeze({});
     window.__ARCHITECT_FILES__ = ${safeJson(included.join("\n"))};
   })();
 </script>
-<script>
+<script type="importmap">
+${PREVIEW_IMPORT_MAP}
+</script>
+<script type="module">
 ${escapeForScript(code)}
 </script>
 </body>
