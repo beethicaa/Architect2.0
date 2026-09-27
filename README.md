@@ -7,6 +7,70 @@
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TB
+
+    User[User]
+
+    subgraph Frontend["Next.js Application"]
+        UI[React / Next.js UI]
+        Dashboard[Dashboard & Projects]
+        Builder[AI Builder Workspace]
+        Preview[Live Preview]
+    end
+
+    subgraph API["Next.js API Layer"]
+        ProjectAPI[Project APIs]
+        AgentAPI[Agent APIs]
+        PipelineAPI[Pipeline APIs]
+        GitHubAPI[GitHub APIs]
+        DeployAPI[Deploy API]
+    end
+
+    subgraph Core["Application Logic"]
+        Agents[AI Agent System]
+        Pipeline[AI Build Pipeline]
+        GitHub[GitHub Integration]
+        Deploy[Vercel Deployment]
+    end
+
+    subgraph External["External Services"]
+        Supabase[(Supabase)]
+        GitHubService[GitHub]
+        Vercel[Vercel]
+        AI[AI Model Provider]
+    end
+
+    User --> UI
+    UI --> Dashboard
+    UI --> Builder
+    Builder --> Preview
+
+    UI --> ProjectAPI
+    UI --> AgentAPI
+    UI --> PipelineAPI
+
+    ProjectAPI --> Supabase
+    AgentAPI --> Agents
+    PipelineAPI --> Pipeline
+
+    Agents --> AI
+    Agents --> Pipeline
+
+    GitHubAPI --> GitHub
+    GitHub --> GitHubService
+
+    DeployAPI --> Deploy
+    Deploy --> Vercel
+
+    Pipeline --> Supabase
+    Pipeline --> GitHub
+```
+
+---
+
 ## The pitch
 
 Every AI app builder in 2026 asks the same question, and every one of them answers it
@@ -216,6 +280,8 @@ The app validates this pairing at startup rather than letting you find out at th
 
 
 ## Project structure
+
+```
 app/            routes: (marketing) (auth) (app) + api/*
   (app)/        the signed-in product - dashboard, projects/[id], settings
   api/          preview, pipeline (NDJSON stream), files, checkpoints,
