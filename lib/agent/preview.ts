@@ -112,6 +112,41 @@ async function compileCss(files: FileRecord[]): Promise<string> {
 import { build, type BuildResult, type Plugin } from "esbuild";
 import { validateSource } from "@/lib/pipeline/validate";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+
+/**
+ * Every plausible place `react` and `react-dom` live, most specific first.
+ *
+ * The bundler resolves the generated app's imports relative to the deployment
+ * root, which is not where a Vercel serverless function keeps its packages.
+ * Listing the candidates means resolution succeeds locally *and* in production
+ * without either one being special-cased.
+ *
+ * The `createRequire` entry is the important one: it asks Node where `react`
+ * actually is, from this module, using the same resolution the server already
+ * relies on. If the package is reachable at runtime this finds it; if it is not,
+ * the list is harmless.
+ */
+const nodeSearchPaths = (): string[] => {
+  const candidates: string[] = [];
+
+  try {
+    const here = createRequire(import.meta.url).resolve("react");
+    candidates.push(path.dirname(here), path.join(path.dirname(here), ".."));
+  } catch {
+    // React is not resolvable from this module. The directory guesses below are
+    // then the only options, which is the situation this list exists to survive.
+  }
+
+  candidates.push(
+    path.join(process.cwd(), "node_modules"),
+    path.join(process.cwd(), "..", "node_modules"),
+    path.join(process.cwd(), ".next", "server", "node_modules"),
+  );
+
+  return [...new Set(candidates.filter((entry) => existsSync(entry)))];
+};
+
 
 import type { FileRecord } from "@/lib/agent/tools";
 
@@ -1077,6 +1112,24 @@ export async function compilePreview(
       },
       bundle: true,
       write: false,
+      /*
+       * Where `react` and `react-dom` are looked for.
+       *
+       * `resolveDir: process.cwd()` is enough locally, and not enough on Vercel.
+       * A serverless function's working directory is the deployment root, and
+       * Next traces its own dependencies into `.next/server` rather than
+       * guaranteeing a `node_modules/react` at the top - so `react/jsx-runtime`
+       * and `react-dom/client` failed to resolve there, and the preview came
+       * back with "Could not resolve" on the mount script *and* on every JSX
+       * element in the user's app. Locally it resolved, so the bug only
+       * appeared in production: the worst place to find it.
+       *
+       * `nodePaths` is searched after the importer's own directory tree, so it
+       * changes nothing that already worked and adds the locations that are
+       * missed. The last entry is the realpath of this module's own `node_modules`
+       * fallback, which is stable in both environments.
+       */
+      nodePaths: nodeSearchPaths(),
       // esbuild refuses to import CSS into JavaScript without an output path,
       // because it has to name the emitted stylesheet. With `write: false`
       // nothing is actually written — the path only has to exist for that name to
