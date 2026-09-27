@@ -13,6 +13,9 @@
  * place to read what the agents wrote.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 import { compilePreview } from "@/lib/agent/preview";
 import { listFiles } from "@/lib/agent/tools";
 import { createClient } from "@/lib/supabase/server";
@@ -20,6 +23,32 @@ import { base64, deploymentName, type DeployFile } from "@/lib/deploy/vercel";
 
 /** Vercel rejects an oversized inline file; skip it rather than fail the deploy. */
 const MAX_FILE_BYTES = 4_000_000;
+
+/**
+ * Where the preview document expects its React runtime to live.
+ *
+ * The compiled document imports it as an absolute path, because in the preview
+ * that path is served by Architect itself. A deployment does not have Architect:
+ * only the files in `files` below are shipped, so an absolute import of a file
+ * nobody deployed is a 404, the module never evaluates, the app never mounts, and
+ * the live URL is a blank page.
+ *
+ * That is exactly what a deployed build did - `GET /preview/react-runtime.js`
+ * returned 404 while `/` returned a complete 30KB document with correct Tailwind.
+ * The document was fine; one of its imports was not there.
+ *
+ * So the runtime travels with the deployment, at the same absolute path the
+ * document asks for. It is the same file the preview uses, so what is deployed
+ * and what was previewed are byte-identical in behaviour.
+ */
+const RUNTIME_PATH = "preview/react-runtime.js";
+
+/** Read the pre-bundled React from disk, or null if the build step did not run. */
+function readRuntime(): string | null {
+  const local = path.join(process.cwd(), "public", RUNTIME_PATH);
+  if (!existsSync(local)) return null;
+  return readFileSync(local, "utf8");
+}
 
 export interface Deployable {
   name: string;
@@ -47,6 +76,27 @@ export async function buildDeployment(
   const files: DeployFile[] = [
     { file: "index.html", data: base64(result.html), encoding: "base64" },
   ];
+
+  /*
+   * The React runtime, at the exact path the document imports.
+   *
+   * Shipping without it produces a deployment that serves a complete, correctly
+   * styled document and then does nothing: the module 404s, so the bundle never
+   * runs and the root element stays empty. Nothing in the response says why - the
+   * page is 200 and looks fine in the source - which is why this needs to be an
+   * error rather than a silent omission.
+   */
+  const runtime = readRuntime();
+  if (!runtime) {
+    return {
+      name: deploymentName(projectName, projectId),
+      files: [],
+      problem:
+        "The React runtime is missing from this build, so a deployed app could not run. " +
+        "It is built by the prebuild step (npm run build).",
+    };
+  }
+  files.push({ file: RUNTIME_PATH, data: base64(runtime), encoding: "base64" });
 
   for (const record of records) {
     if (Buffer.byteLength(record.content, "utf8") > MAX_FILE_BYTES) continue;

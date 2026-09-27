@@ -122,6 +122,16 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/projects/[id]/preview": ["./public/preview/**"],
     "/api/projects/[id]/repair": ["./public/preview/**"],
+    /*
+     * The deploy route reads the same pre-bundled React, to ship it *inside* the
+     * deployment.
+     *
+     * Without this it worked locally and produced a blank page in production: the
+     * document imported `/preview/react-runtime.js`, that file was not in the
+     * function, and the deployed app's only import 404'd. The page returned 200
+     * with a complete stylesheet and an empty root element.
+     */
+    "/api/projects/[id]/deploy": ["./public/preview/**"],
   },
 };
 
