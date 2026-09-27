@@ -138,14 +138,38 @@ async function compileCss(files: FileRecord[]): Promise<string> {
 
     const css = compiled.build(candidates);
     cssCache.set(fingerprint, css);
+    cssFailureReason = null;
     return css;
   } catch (error) {
     // A CSS failure must not take the app down with it - but it must also never
     // look like a design decision. The fallback styles in Times precisely so a
     // broken stylesheet is legible as a failure rather than as a plain app.
+    //
+    // The reason is recorded so the panel can show it. Two rounds of "colours are
+    // missing" were spent guessing at causes when the answer was a single line in
+    // a server log nobody was watching: a silently unstyled preview is
+    // indistinguishable from an app that was written without styling.
+    cssFailureReason = error instanceof Error ? error.message : String(error);
     console.error("[architect] preview Tailwind build failed:", error);
     return UNSTYLED_FALLBACK;
   }
+}
+
+/**
+ * Why the last CSS compile failed, if it did.
+ *
+ * Module-level rather than returned, because `compileCss` is called deep inside
+ * the bundling path and threading a second return value through it would touch
+ * the code for every caller to serve a diagnostic. Read immediately after the
+ * call and cleared on success, so it can never report a stale failure.
+ */
+let cssFailureReason: string | null = null;
+
+/** The last CSS failure, for the caller to report. Cleared on the next success. */
+export function takeCssFailure(): string | null {
+  const reason = cssFailureReason;
+  cssFailureReason = null;
+  return reason;
 }
 
 import { build, type BuildResult, type Plugin } from "esbuild";
@@ -1342,6 +1366,23 @@ export async function compilePreview(
     notes.push(`${item.path} did not compile — ${item.error}`);
   }
 
+  /*
+   * A stylesheet that failed to build is reported, loudly and first.
+   *
+   * This is the note that should have existed from the start. A silently unstyled
+   * preview is indistinguishable from an app that was deliberately written without
+   * styling, so every diagnosis of "the colours are missing" started by blaming the
+   * app, then the CDN, then the agent - while the real cause sat in a server log.
+   * Naming it here means the panel says what actually happened.
+   */
+  const cssFailure = takeCssFailure();
+  if (cssFailure) {
+    notes.unshift(
+      `Architect could not build this app's stylesheet, so it is showing without colour or custom fonts. ` +
+        `The app's code is fine. This is a bug in Architect - please report it with this detail: ${cssFailure.slice(0, 300)}`,
+    );
+  }
+
   return {
     ok: true,
     html: wrap(code, css, paths),
@@ -1435,15 +1476,31 @@ function wrap(code: string, css: string, included: string[]): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>${css}</style>
 <style>
+/*
+ * Base styles, deliberately inside a layer.
+ *
+ * This block used to be unlayered, which is a real override rather than a
+ * default. Tailwind v4 emits its entire output inside cascade layers
+ * (@layer theme / base / components / utilities), and in the CSS cascade
+ * UNLAYERED styles beat every layered style regardless of source order. So a
+ * plain \`body { font-family: ui-sans-serif }\` written after the compiled
+ * stylesheet silently replaced whatever font Tailwind had applied, and the
+ * preview rendered in the system sans no matter what the app asked for.
+ *
+ * Putting these in \`@layer base\` puts them back where they belong: the first
+ * thing Tailwind itself does, overridable by anything the app actually uses.
+ */
+@layer base {
   *, *::before, *::after { box-sizing: border-box; }
   body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #__architect_error {
-    display: none; margin: 16px; padding: 14px 16px; border-radius: 10px;
-    border: 1px solid #e5484d33; background: #e5484d0f; color: #e5484d;
-    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-    white-space: pre-wrap; word-break: break-word;
-  }
-  #__architect_error b { display: block; margin-bottom: 6px; font-size: 13px; }
+}
+#__architect_error {
+  display: none; margin: 16px; padding: 14px 16px; border-radius: 10px;
+  border: 1px solid #e5484d33; background: #e5484d0f; color: #e5484d;
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-word;
+}
+#__architect_error b { display: block; margin-bottom: 6px; font-size: 13px; }
 </style>
 </head>
 <body>
