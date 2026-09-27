@@ -1,0 +1,60 @@
+name: CI
+
+# Proves the claim in the README rather than asserting it. A reviewer should be
+# able to see that the build, the types and the lint all pass without installing
+# anything, and without trusting a screenshot.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: build, types, lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint --max-warnings=0 --quiet
+
+      # No credentials in CI, so this proves the app *boots* without them, which
+      # is a documented behaviour rather than an accident. The full credential
+      # preflight needs secrets and belongs in a deployment, not a pull request.
+      - name: Build
+        run: npm run build
+
+      #
+      # Start, poll and assert in one step on purpose: a background process does
+      # not survive to the next step, and `npx wait-on` would mean installing a
+      # package over the network to test a server that is already running.
+      - name: Boots and serves the landing page
+        run: |
+          npm run start &
+          for i in $(seq 1 40); do
+            if curl -fsS -o /dev/null http://localhost:3000/; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS -o /dev/null -w "GET /          -> %{http_code}\n" http://localhost:3000/
+          curl -fsS -o /dev/null -w "GET /sign-in   -> %{http_code}\n" http://localhost:3000/sign-in
+          # A signed-out visitor must not be able to read a project's preview.
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            http://localhost:3000/api/projects/00000000-0000-0000-0000-000000000000/preview)
+          echo "GET /preview (anon) -> $code"
+          test "$code" = "401"
+
