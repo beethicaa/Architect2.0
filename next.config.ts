@@ -80,7 +80,24 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "esbuild",
     "openai",
+    /*
+     * The Tailwind toolchain, used at runtime by the preview compiler.
+     *
+     * `lightningcss` is a native binary and Turbopack fails to resolve it as a
+     * dynamic `.node` import, which takes the whole build down. The rest are
+     * left external for the same reason as esbuild: they are server-side build
+     * tools that run while compiling a preview and never reach a browser, so
+     * bundling them buys nothing and only creates resolution problems.
+     *
+     * These are runtime `dependencies`, not devDependencies, because the preview
+     * is compiled on demand by the deployed server. `@tailwindcss/cli` was here
+     * as a devDependency and was spawned at runtime, which meant every deployed
+     * build silently fell back to an unstyled document.
+     */
     "@tailwindcss/cli",
+    "@tailwindcss/node",
+    "@tailwindcss/oxide",
+    "lightningcss",
     "@vue/compiler-sfc",
     "svelte",
     "svelte/compiler",

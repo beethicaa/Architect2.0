@@ -1,41 +1,25 @@
 
-import { execFile } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
-
-
-const exec = promisify(execFile);
 
 const cssCache = new Map<string, string>();
 
 /**
- * The CSS handed to the Tailwind CLI.
+ * What a preview falls back to when CSS cannot be compiled at all.
  *
- * The `@source` line is the part that matters, and its absence is why generated
- * apps rendered with browser defaults while looking, from every other angle,
- * correct.
- *
- * Without it, Tailwind v4's automatic detection scans from the project it
- * considers the source root - which, for a CSS file in a temp directory, resolves
- * to *this* app rather than the generated one. The generated code was never
- * scanned. The stylesheet still came out 75KB and full of real utilities, because
- * this app's own source uses `flex` and `p-4` too, so the CSS looked entirely
- * healthy: standard classes worked and arbitrary values silently did not.
- *
- * That combination - layout correct, every colour missing - is the signature of
- * this bug, and it is why it survived so long. Pointing `@source` at the
- * materialised project directory is what makes Tailwind read the generated files.
+ * A real stylesheet, not a bare reset, so the failure is visibly *wrong* rather
+ * than merely plain: without a font stack the app renders in Times, which is
+ * impossible to mistake for a design decision. That matters because the previous
+ * fallback was a clean reset, and a clean reset looks exactly like a deliberately
+ * unstyled app - which is how a missing devDependency read as "the agent produced
+ * a plain website" for an entire deployment.
  */
-function tailwindInput(sourceDir: string): string {
-  const entry = path.join(process.cwd(), "node_modules", "tailwindcss", "index.css");
-  return (
-    `@import "${entry.replace(/\\/g, "/")}";\n` +
-    `@source "${sourceDir.replace(/\\/g, "/")}";\n`
-  );
-}
+const UNSTYLED_FALLBACK =
+  "*,*::before,*::after{box-sizing:border-box}" +
+  "body{margin:0;font-family:Times New Roman,serif}";
 
 
 async function compileCss(files: FileRecord[]): Promise<string> {
@@ -44,9 +28,6 @@ async function compileCss(files: FileRecord[]): Promise<string> {
   );
 
   const fingerprint = createHash("sha1")
-    // The temp root is not part of the identity of the CSS; only the file
-    // contents are, so an unrelated per-run directory does not invalidate it.
-    .update(tailwindInput(tmpdir()))
     .update(sources.map((f) => `${f.path}:${f.content}`).join("\n"))
     .digest("hex");
 
@@ -58,59 +39,81 @@ async function compileCss(files: FileRecord[]): Promise<string> {
     return "*,*::before,*::after{box-sizing:border-box}body{margin:0}";
   }
 
-  // A unique directory per invocation.
-  //
-  // This used to be `architect-css-${fingerprint}`. That made two concurrent
-  // requests for the same project share one directory and one `out.css`, and the
-  // `rm` in the `finally` block deleted it out from under whichever build was
-  // still running. The result was a stylesheet that was randomly missing
-  // utilities - most often the arbitrary colour values - so a generated app
-  // rendered with browser defaults while the code on screen was perfectly fine.
-  // It never reproduced in a single-call test, which is exactly what a race does.
-  //
-  // The fingerprint still keys the cache; it just no longer names a shared path
-  // that a second request can pull out from under the first.
-  const dir = path.join(tmpdir(), `architect-css-${fingerprint.slice(0, 8)}-${randomUUID()}`);
-  const input = path.join(dir, "in.css");
-  const output = path.join(dir, "out.css");
+  /*
+   * Compiled through Tailwind's Node API, in this process.
+   *
+   * This used to shell out to `@tailwindcss/cli`. That worked locally and failed
+   * on every deployed build, because that package was a devDependency and Vercel
+   * does not install devDependencies to run the server. The spawn failed, and the
+   * catch below quietly returned a bare reset - so a deployed preview rendered
+   * every generated app with browser defaults: correct layout, no colour, no
+   * gradient, black text on white. Locally it looked perfect, which is why the
+   * bug read as "the deployment is broken" rather than "a dependency is missing".
+   *
+   * The API is two steps, in the order Tailwind itself does them: extract the
+   * class names out of the source text, then generate the rules for exactly those
+   * names. Both are in-process, so nothing depends on a binary being installed
+   * next to the deployed function.
+   *
+   * Nothing is written to disk. The old version needed a temp directory, and two
+   * concurrent requests for the same project shared one directory and one
+   * `out.css` - so the first request's cleanup deleted the files out from under
+   * the second build, which returned a stylesheet randomly missing utilities and
+   * so randomly unstyled. It never reproduced in a single-call test, which is
+   * exactly what a race does.
+   */
+  const root = path.join(tmpdir(), "architect-preview-src");
+
+  let build: (candidates: string[]) => string;
+  let scanner: { scanFiles: (files: unknown[]) => Promise<string[]> };
 
   try {
-    await mkdir(dir, { recursive: true });
-    // The CLI scans a directory, so the generated tree is materialised verbatim.
-    for (const file of sources) {
-      const target = path.join(dir, file.path);
-      await mkdir(path.dirname(target), { recursive: true });
-      await writeFile(target, file.content, "utf8");
-    }
-    await writeFile(input, tailwindInput(dir), "utf8");
+    const [{ compile }, { Scanner }] = await Promise.all([
+      import("@tailwindcss/node"),
+      import("@tailwindcss/oxide"),
+    ]);
 
-    await exec(
-      process.execPath,
-      [
-        path.join("node_modules", "@tailwindcss", "cli", "dist", "index.mjs"),
-        "-i", input,
-        "-o", output,
-        "--minify",
-      ],
-      { cwd: process.cwd(), timeout: 60_000 },
+    const compiled = await compile('@import "tailwindcss";', {
+      base: process.cwd(),
+      onDependency: () => undefined,
+    });
+
+    build = compiled.build;
+    scanner = new Scanner({
+      sources: [{ base: root, pattern: "**/*", negated: false }],
+    }) as unknown as { scanFiles: (files: unknown[]) => Promise<string[]> };
+  } catch (error) {
+    console.error("[architect] preview Tailwind init failed:", error);
+    return UNSTYLED_FALLBACK;
+  }
+
+  try {
+    // The scanner wants an extension per file because it picks a parser by
+    // language, and it reads content in memory - so a generated project never has
+    // to exist as files for a stylesheet to be produced from it.
+    const candidates = await scanner.scanFiles(
+      sources.map((file) => ({
+        path: file.path,
+        base: root,
+        extension: file.path.split(".").pop() ?? "tsx",
+        content: file.content,
+      })),
     );
 
-    const css = await readFile(output, "utf8");
+    const css = build(candidates);
     cssCache.set(fingerprint, css);
     return css;
   } catch (error) {
-    // A CSS failure must not take the app down with it. Fall back to a base
-    // reset so the preview still runs, just unstyled.
+    // A CSS failure must not take the app down with it - but it must also never
+    // look like a design decision. The fallback styles in Times precisely so a
+    // broken stylesheet is legible as a failure rather than as a plain app.
     console.error("[architect] preview Tailwind build failed:", error);
-    return "*,*::before,*::after{box-sizing:border-box}body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif}";
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    return UNSTYLED_FALLBACK;
   }
 }
 
 import { build, type BuildResult, type Plugin } from "esbuild";
 import { validateSource } from "@/lib/pipeline/validate";
-import { existsSync } from "node:fs";
 
 /**
  * Every plausible place `react` and `react-dom` live, most specific first.
