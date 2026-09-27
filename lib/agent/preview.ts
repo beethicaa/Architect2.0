@@ -22,13 +22,42 @@ const UNSTYLED_FALLBACK =
   "body{margin:0;font-family:Times New Roman,serif}";
 
 
+/**
+ * Compile the stylesheet for a preview.
+ *
+ * `files` is EVERY file in the project, not just the ones that ended up in the
+ * bundle, and the distinction is load-bearing:
+ *
+ * - Class names are extracted only from markup, so `.tsx/.ts/.jsx/.js/.html`.
+ * - The project's own stylesheets are read as *input to Tailwind*, not scanned
+ *   for class names. A generated app that declares a palette in `globals.css`
+ *   with an `@theme` block, or pulls in a component library's CSS, gets that
+ *   theme applied. Passing only the bundled files meant a project's custom
+ *   colours were silently dropped while the standard palette still worked, so
+ *   the app looked *almost* right - which is harder to notice than looking
+ *   broken, and impossible to diagnose from the preview.
+ */
 async function compileCss(files: FileRecord[]): Promise<string> {
   const sources = files.filter((file) =>
     /\.(tsx|ts|jsx|js|html)$/.test(file.path),
   );
 
+  // The project's own CSS, fed to Tailwind as stylesheet source so `@theme`,
+  // `@layer` and `@import` in it are honoured. `index.css` is the conventional
+  // entry point and is used first; any other stylesheet is appended so a second
+  // one is not silently ignored.
+  const projectCss = [
+    ...files.filter((f) => /(?:^|\/)(?:globals|index|app)\.css$/.test(f.path)),
+    ...files.filter(
+      (f) =>
+        f.path.endsWith(".css") &&
+        !/(?:^|\/)(?:globals|index|app)\.css$/.test(f.path),
+    ),
+  ];
+
   const fingerprint = createHash("sha1")
     .update(sources.map((f) => `${f.path}:${f.content}`).join("\n"))
+    .update(projectCss.map((f) => `${f.path}:${f.content}`).join("\n"))
     .digest("hex");
 
   const cached = cssCache.get(fingerprint);
@@ -64,34 +93,41 @@ async function compileCss(files: FileRecord[]): Promise<string> {
    */
   const root = path.join(tmpdir(), "architect-preview-src");
 
-  let build: (candidates: string[]) => string;
-  let scanner: { scanFiles: (files: unknown[]) => Promise<string[]> };
-
   try {
+    /*
+     * The stylesheet handed to Tailwind.
+     *
+     * The project's own CSS is *inlined* rather than `@import`ed by path. An
+     * import would be resolved relative to `base` - the deployment root - where
+     * the generated project does not exist, so every custom theme was dropped
+     * without an error. Concatenating the text sidesteps resolution entirely.
+     *
+     * `@import "tailwindcss"` inside a project's own file is dropped: it is
+     * already imported above, and leaving it in makes Tailwind treat the rest of
+     * that file as a separate import boundary it cannot resolve.
+     */
+    const projectStyles = projectCss
+      .map((file) => file.content.replace(/@import\s+["']tailwindcss["']\s*;?/g, ""))
+      .join("\n");
+
     const [{ compile }, { Scanner }] = await Promise.all([
       import("@tailwindcss/node"),
       import("@tailwindcss/oxide"),
     ]);
 
-    const compiled = await compile('@import "tailwindcss";', {
-      base: process.cwd(),
-      onDependency: () => undefined,
-    });
+    const compiled = await compile(
+      `@import "tailwindcss";\n${projectStyles}`,
+      { base: process.cwd(), onDependency: () => undefined },
+    );
 
-    build = compiled.build;
-    scanner = new Scanner({
+    const scannerForRun = new Scanner({
       sources: [{ base: root, pattern: "**/*", negated: false }],
     }) as unknown as { scanFiles: (files: unknown[]) => Promise<string[]> };
-  } catch (error) {
-    console.error("[architect] preview Tailwind init failed:", error);
-    return UNSTYLED_FALLBACK;
-  }
 
-  try {
     // The scanner wants an extension per file because it picks a parser by
     // language, and it reads content in memory - so a generated project never has
     // to exist as files for a stylesheet to be produced from it.
-    const candidates = await scanner.scanFiles(
+    const candidates = await scannerForRun.scanFiles(
       sources.map((file) => ({
         path: file.path,
         base: root,
@@ -100,7 +136,7 @@ async function compileCss(files: FileRecord[]): Promise<string> {
       })),
     );
 
-    const css = build(candidates);
+    const css = compiled.build(candidates);
     cssCache.set(fingerprint, css);
     return css;
   } catch (error) {
