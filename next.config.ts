@@ -87,6 +87,25 @@ const nextConfig: NextConfig = {
   ],
 
   allowedDevOrigins: [...LAN_HOSTNAMES, ...EXTRA_ORIGINS],
+
+  /*
+   * Ship the pre-bundled React *inside the serverless function*.
+   *
+   * Vercel serves `public/` from the CDN and traces server files separately, so
+   * a file that is reachable at `https://the-app/preview/react.js` is not
+   * necessarily present at `/var/task/public/preview/react.js` inside the
+   * function. The preview compiler reads it from disk, and got
+   * "Cannot read file: /var/task/public/preview/react.js" on every build in
+   * production while working locally.
+   *
+   * `outputFileTracingIncludes` is the documented way to tell Next to include
+   * those files in the function's own bundle. It is scoped to the one route
+   * that needs them, so no other function carries 190KB it will never read.
+   */
+  outputFileTracingIncludes: {
+    "/api/projects/[id]/preview": ["./public/preview/**"],
+    "/api/projects/[id]/repair": ["./public/preview/**"],
+  },
 };
 
 export default nextConfig;
