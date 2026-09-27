@@ -1101,7 +1101,19 @@ export async function compilePreview(
         contents: shim,
         resolveDir: process.cwd(),
         loader: "tsx",
-        sourcefile: "__architect_entry.tsx",
+        /*
+         * `.mjs`, not `.tsx`, and that extension is load-bearing.
+         *
+         * esbuild decides whether an external import becomes `import` or
+         * `require()` from the module system of the file that asks for it. A
+         * `.tsx` entry was inferred as CommonJS, so the generated code called
+         * `__require("react")` and the browser threw "Dynamic require of react
+         * is not supported" before a single component rendered. Naming the
+         * entry ESM makes the import map do its job.
+         *
+         * The loader stays `tsx`, so JSX in the mount shim still compiles.
+         */
+        sourcefile: "__architect_entry.mjs",
       },
       bundle: true,
       write: false,
@@ -1129,7 +1141,24 @@ export async function compilePreview(
       // plain side-effect `import "./x.css"` never triggers, so the difference
       // only shows up on exactly the projects that use CSS Modules.
       outdir: path.join(os.tmpdir(), "architect-preview"),
-      format: "esm",
+      format: "iife",
+      /*
+       * React comes from a CDN as UMD globals; the banner maps `require` onto
+       * `window` so esbuild's CommonJS interop for an external import resolves.
+       *
+       * Every earlier attempt tried to *ship* React - from `node_modules` (no
+       * such package inside a Vercel serverless function), from `public/` (the
+       * CDN serves it, the function's filesystem does not have it), and inlined
+       * into a generated module (export shapes did not match what generated code
+       * imports). An ESM import map was the right idea too, but esbuild inferred
+       * the entry as CommonJS and emitted `__require("react")`, which no browser
+       * can run: "Dynamic require of react is not supported".
+       *
+       * The shim below is the standard esbuild CDN pattern. It removes the
+       * module-type inference from the picture entirely, because `require` is
+       * defined here rather than generated.
+       */
+
       /*
        * React comes from a CDN, resolved by the browser through the import map
        * in the document.
@@ -1150,7 +1179,16 @@ export async function compilePreview(
       external: ["react", "react-dom", "react-dom/client", "react/jsx-runtime", "react/jsx-dev-runtime"],
       platform: "browser",
       target: "es2020",
-      jsx: "automatic",
+      /*
+       * The classic transform, not the automatic runtime.
+       *
+       * `automatic` emits `import { jsx } from "react/jsx-runtime"`, and the UMD
+       * builds below do not expose that runtime as a global - React 19 dropped UMD
+       * entirely, and React 18 UMD has no jsx-runtime bundle. `transform` uses
+       * `React.createElement`, which is the one API every React build has, so the
+       * preview needs exactly two globals instead of four.
+       */
+      jsx: "transform",
       define: {
         // The generated app has no build-time env. These stand in for the Next
         // constants the model will reflexively reach for.
@@ -1312,6 +1350,48 @@ const PREVIEW_IMPORT_MAP = JSON.stringify(
   null,
   2,
 );
+/*
+ * React is loaded into the preview iframe as UMD globals from a CDN, before the
+ * app bundle runs. esbuild is told React is external and given a `require` shim
+ * that maps the specifier onto these globals.
+ *
+ * Shipping React from the server was tried four times and failed in production
+ * every time - a Vercel serverless function has no React package on its
+ * filesystem, `public/` is served by the CDN rather than bundled into the
+ * function, and an inlined bundle did not match the export shapes generated code
+ * imports. A browser fetching a library it will run once is the right shape for
+ * this problem.
+ *
+ * Pinned to the version this app depends on, so a preview never renders against
+ * a different React than the rest of the product.
+ */
+const PREVIEW_REACT_VERSION = "19.2.8";
+
+const PREVIEW_CDN_SCRIPTS = [
+  // React 18.3.1 UMD. React 19 removed UMD builds entirely - every /umd/ path
+  // under 19.2.8 returns 404 - and this is the last version that ships one, so
+  // it is what the preview runs against. Generated code overwhelmingly uses
+  // useState/useEffect/useMemo, which are identical across 18 and 19; the
+  // 19-only APIs (`use`, `useActionState`) are the one documented gap.
+  `<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>`,
+  `<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>`,
+  // The bridge. esbuild emits `__require("react")` for an external import in IIFE
+  // output, and its own shim checks `typeof require !== "undefined"` *first* -
+  // so defining a global `require` here is what makes those calls resolve. This
+  // is why the shim lives in the document rather than in an esbuild banner: a
+  // banner is prepended, and esbuild's definition then shadows it.
+  `<script>
+  window.require = function (id) {
+    var key = String(id).replace(/^node:/, "");
+    var found =
+      key === "react" ? window.React :
+      key === "react-dom" || key === "react-dom/client" ? window.ReactDOM :
+      window[key];
+    if (!found) throw new Error("Architect preview: " + id + " did not load.");
+    return found;
+  };
+  </script>`,
+].join("\n");
 function escapeForScript(code: string): string {
   return code.replace(/<\/script/gi, "<\\/script");
 }
@@ -1437,7 +1517,7 @@ window.__architect_env = Object.freeze({});
   })();
 </script>
 <script type="importmap">
-${PREVIEW_IMPORT_MAP}
+${PREVIEW_CDN_SCRIPTS}
 </script>
 <script type="module">
 ${escapeForScript(code)}
